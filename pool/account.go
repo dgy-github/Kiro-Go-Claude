@@ -339,6 +339,34 @@ func (p *AccountPool) inFlightCountLocked(id string) int {
 	return p.inFlight[id]
 }
 
+// InFlightCount returns the number of active upstream requests for an account.
+func (p *AccountPool) InFlightCount(id string) int {
+	if id == "" {
+		return 0
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.inFlightCountLocked(id)
+}
+
+// CooldownRemaining returns the remaining cooldown for an account.
+func (p *AccountPool) CooldownRemaining(id string) time.Duration {
+	if id == "" {
+		return 0
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	cooldown, ok := p.cooldowns[id]
+	if !ok {
+		return 0
+	}
+	remaining := time.Until(cooldown)
+	if remaining <= 0 {
+		return 0
+	}
+	return remaining
+}
+
 // GetByID 根据 ID 获取账号
 func (p *AccountPool) GetByID(id string) *config.Account {
 	p.mu.RLock()

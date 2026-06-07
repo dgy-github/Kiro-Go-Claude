@@ -150,7 +150,7 @@ func (h *Handler) handleResponsesNonStream(
 	}
 
 	for attempt := 0; attempt < maxAccountRetryAttempts; attempt++ {
-		account := h.pool.GetNextForModelExcluding(model, excluded)
+		account := h.selectAccountForModel(model, excluded)
 		if account == nil {
 			break
 		}
@@ -386,7 +386,7 @@ func (h *Handler) handleResponsesStream(
 	responseStarted := false
 
 	for attempt := 0; attempt < maxAccountRetryAttempts; attempt++ {
-		account := h.pool.GetNextForModelExcluding(model, excluded)
+		account := h.selectAccountForModel(model, excluded)
 		if account == nil {
 			break
 		}

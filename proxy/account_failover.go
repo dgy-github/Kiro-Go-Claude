@@ -92,6 +92,9 @@ func (h *Handler) handleAccountFailure(account *config.Account, err error) {
 	if account == nil || err == nil {
 		return
 	}
+	if isEndpointCooldownError(err) {
+		return
+	}
 
 	errMsg := err.Error()
 	switch {

@@ -211,6 +211,82 @@ func TestClaudeStreamRepairsAssistantToolPlanPlaceholder(t *testing.T) {
 	}
 }
 
+func TestSelectAccountForModelWaitsForBusyAccountToRelease(t *testing.T) {
+	cfgFile := t.TempDir() + "/config.json"
+	if err := config.Init(cfgFile); err != nil {
+		t.Fatalf("config.Init: %v", err)
+	}
+	if err := config.AddAccount(config.Account{
+		ID:          "queue-account",
+		Email:       "queue@example.com",
+		Enabled:     true,
+		AccessToken: "token-queue",
+	}); err != nil {
+		t.Fatalf("add account: %v", err)
+	}
+
+	p := accountpool.GetPool()
+	p.Reload()
+	p.BeginRequest("queue-account")
+	defer p.EndRequest("queue-account")
+
+	oldMaxWait := accountQueueMaxWait
+	oldPoll := accountQueuePoll
+	accountQueueMaxWait = 500 * time.Millisecond
+	accountQueuePoll = 10 * time.Millisecond
+	defer func() {
+		accountQueueMaxWait = oldMaxWait
+		accountQueuePoll = oldPoll
+	}()
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		p.EndRequest("queue-account")
+	}()
+
+	h := &Handler{pool: p}
+	startedAt := time.Now()
+	account := h.selectAccountForModel("claude-sonnet-4.5", map[string]bool{})
+	if account == nil || account.ID != "queue-account" {
+		t.Fatalf("expected queue account after release, got %#v", account)
+	}
+	if time.Since(startedAt) < 40*time.Millisecond {
+		t.Fatalf("expected selector to wait for busy account release")
+	}
+	if got := p.InFlightCount("queue-account"); got != 0 {
+		t.Fatalf("expected account to be idle after release, got inFlight=%d", got)
+	}
+}
+
+func TestSelectAccountForModelDoesNotUseCoolingAccountFallback(t *testing.T) {
+	cfgFile := t.TempDir() + "/config.json"
+	if err := config.Init(cfgFile); err != nil {
+		t.Fatalf("config.Init: %v", err)
+	}
+	if err := config.AddAccount(config.Account{
+		ID:          "cooldown-account",
+		Email:       "cooldown@example.com",
+		Enabled:     true,
+		AccessToken: "token-cooldown",
+	}); err != nil {
+		t.Fatalf("add account: %v", err)
+	}
+
+	p := accountpool.GetPool()
+	p.Reload()
+	p.RecordError("cooldown-account", true)
+
+	oldMaxWait := accountQueueMaxWait
+	accountQueueMaxWait = 0
+	defer func() { accountQueueMaxWait = oldMaxWait }()
+
+	h := &Handler{pool: p}
+	account := h.selectAccountForModel("claude-sonnet-4.5", map[string]bool{})
+	if account != nil {
+		t.Fatalf("expected nil while only account is cooling down, got %#v", account)
+	}
+}
+
 func TestThinkingSourceTagFirst(t *testing.T) {
 	var source thinkingStreamSource
 

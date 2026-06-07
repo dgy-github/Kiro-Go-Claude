@@ -375,11 +375,27 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 		}
 	}
 
-	// Build endpoint list ordered by configuration.
+	// Build endpoint list ordered by configuration, then remove endpoints that
+	// are cooling down for this account. This avoids hammering the same three
+	// upstream routes during quota/backoff storms.
 	endpoints := getSortedEndpoints(config.GetPreferredEndpoint())
+	coolingEndpoints := []string{}
+	var retryAfter time.Duration
+	endpoints, retryAfter, coolingEndpoints = availableKiroEndpoints(account, endpoints)
+	if len(endpoints) == 0 {
+		return &endpointCooldownError{
+			AccountEmail: accountEmail,
+			RetryAfter:   retryAfter,
+			Endpoints:    coolingEndpoints,
+		}
+	}
 
 	var lastErr error
+	attemptedEndpoints := 0
+	quotaEndpoints := make([]string, 0)
+	nonQuotaFailure := false
 	for _, ep := range endpoints {
+		attemptedEndpoints++
 		// Update the origin field for the selected endpoint.
 		payload.ConversationState.CurrentMessage.UserInputMessage.Origin = ep.Origin
 
@@ -415,6 +431,8 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 		if err != nil {
 			cancelReq()
 			lastErr = err
+			nonQuotaFailure = true
+			recordKiroEndpointTransientFailure(account, ep, err)
 			logger.Warnf("[KiroAPI] trace=%s endpoint=%s failed after=%s err=%v", traceID, ep.Name, time.Since(endpointStartedAt).Round(time.Millisecond), err)
 			continue
 		}
@@ -423,7 +441,9 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 		if resp.StatusCode == 429 {
 			resp.Body.Close()
 			cancelReq()
-			logger.Warnf("[KiroAPI] trace=%s Endpoint %s quota exhausted (429), trying next...", traceID, ep.Name)
+			recordKiroEndpointQuotaFailure(account, ep)
+			quotaEndpoints = append(quotaEndpoints, ep.Name)
+			logger.Warnf("[KiroAPI] trace=%s Endpoint %s quota exhausted (429), cooling endpoint and trying next...", traceID, ep.Name)
 			lastErr = fmt.Errorf("quota exhausted on %s", ep.Name)
 			continue
 		}
@@ -440,10 +460,15 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 			if resp.StatusCode == 401 || resp.StatusCode == 403 || resp.StatusCode == 402 {
 				return lastErr
 			}
+			nonQuotaFailure = true
+			if resp.StatusCode >= 500 {
+				recordKiroEndpointTransientFailure(account, ep, lastErr)
+			}
 			logger.Warnf("[KiroAPI] trace=%s Endpoint %s error: %v", traceID, ep.Name, lastErr)
 			continue
 		}
 
+		recordKiroEndpointSuccess(account, ep)
 		streamStartedAt := time.Now()
 		logger.Infof("[KiroAPI] trace=%s endpoint=%s stream-start", traceID, ep.Name)
 		streamCallback, emittedUpstreamContent := wrapCallbackWithEmissionTracking(callback)
@@ -455,6 +480,8 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 			lastErr = err
 			if !emittedUpstreamContent() {
 				logger.Warnf("[KiroAPI] trace=%s endpoint=%s stream-error before upstream content, trying next endpoint...", traceID, ep.Name)
+				recordKiroEndpointTransientFailure(account, ep, err)
+				nonQuotaFailure = true
 				continue
 			}
 		} else {
@@ -463,6 +490,9 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 		return err
 	}
 
+	if attemptedEndpoints > 0 && len(quotaEndpoints) == attemptedEndpoints && !nonQuotaFailure {
+		return &kiroQuotaError{Endpoints: quotaEndpoints}
+	}
 	if lastErr != nil {
 		return lastErr
 	}

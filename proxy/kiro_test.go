@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"kiro-go/config"
 	"net/http"
 	"net/http/httptest"
@@ -277,6 +278,175 @@ func TestCallKiroAPIRetriesNextEndpointAfterPreContentStreamError(t *testing.T) 
 	}
 }
 
+func TestCallKiroAPICools429EndpointAndSkipsItOnNextRequest(t *testing.T) {
+	resetEndpointCooldownsForTest()
+	t.Cleanup(resetEndpointCooldownsForTest)
+
+	cfgFile := t.TempDir() + "/config.json"
+	if err := config.Init(cfgFile); err != nil {
+		t.Fatalf("config.Init: %v", err)
+	}
+	if err := config.UpdatePreferredEndpoint("kiro"); err != nil {
+		t.Fatalf("set endpoint: %v", err)
+	}
+	if err := config.UpdateEndpointFallback(true); err != nil {
+		t.Fatalf("enable endpoint fallback: %v", err)
+	}
+
+	quotaRequests := 0
+	okRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/quota":
+			quotaRequests++
+			http.Error(w, "quota exhausted", http.StatusTooManyRequests)
+		case "/ok":
+			okRequests++
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(awsEventStreamFrame(t, "assistantResponseEvent", map[string]interface{}{
+				"content": "ok",
+			}))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	oldEndpoints := kiroEndpoints
+	kiroEndpoints = []kiroEndpoint{
+		{URL: server.URL + "/quota", Origin: "AI_EDITOR", Name: "quota-endpoint"},
+		{URL: server.URL + "/ok", Origin: "AI_EDITOR", Name: "ok-endpoint"},
+	}
+	t.Cleanup(func() { kiroEndpoints = oldEndpoints })
+
+	oldClient := kiroHttpStore.Load()
+	kiroHttpStore.Store(&http.Client{Timeout: time.Second, Transport: &http.Transport{}})
+	t.Cleanup(func() { kiroHttpStore.Store(oldClient) })
+
+	account := &config.Account{
+		ID:          "test-account",
+		Email:       "test@example.com",
+		AccessToken: "token-test",
+		ProfileArn:  "arn:aws:codewhisperer:profile/test",
+	}
+
+	for i := 0; i < 2; i++ {
+		var got string
+		err := CallKiroAPI(account, testKiroPayload(), &KiroStreamCallback{
+			OnText: func(text string, isThinking bool) {
+				if !isThinking {
+					got += text
+				}
+			},
+		})
+		if err != nil {
+			t.Fatalf("request %d expected success, got err=%v", i+1, err)
+		}
+		if got != "ok" {
+			t.Fatalf("request %d expected ok content, got %q", i+1, got)
+		}
+	}
+
+	if quotaRequests != 1 {
+		t.Fatalf("expected cooled quota endpoint to be hit once, got %d", quotaRequests)
+	}
+	if okRequests != 2 {
+		t.Fatalf("expected ok endpoint to serve both requests, got %d", okRequests)
+	}
+}
+
+func TestCallKiroAPIReturnsQuotaErrorWhenAllAttemptedEndpoints429(t *testing.T) {
+	resetEndpointCooldownsForTest()
+	t.Cleanup(resetEndpointCooldownsForTest)
+
+	cfgFile := t.TempDir() + "/config.json"
+	if err := config.Init(cfgFile); err != nil {
+		t.Fatalf("config.Init: %v", err)
+	}
+	if err := config.UpdatePreferredEndpoint("kiro"); err != nil {
+		t.Fatalf("set endpoint: %v", err)
+	}
+	if err := config.UpdateEndpointFallback(true); err != nil {
+		t.Fatalf("enable endpoint fallback: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "quota exhausted", http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	oldEndpoints := kiroEndpoints
+	kiroEndpoints = []kiroEndpoint{
+		{URL: server.URL + "/a", Origin: "AI_EDITOR", Name: "a"},
+		{URL: server.URL + "/b", Origin: "AI_EDITOR", Name: "b"},
+	}
+	t.Cleanup(func() { kiroEndpoints = oldEndpoints })
+
+	oldClient := kiroHttpStore.Load()
+	kiroHttpStore.Store(&http.Client{Timeout: time.Second, Transport: &http.Transport{}})
+	t.Cleanup(func() { kiroHttpStore.Store(oldClient) })
+
+	err := CallKiroAPI(&config.Account{
+		ID:          "quota-account",
+		Email:       "quota@example.com",
+		AccessToken: "token-test",
+		ProfileArn:  "arn:aws:codewhisperer:profile/test",
+	}, testKiroPayload(), &KiroStreamCallback{})
+
+	var quotaErr *kiroQuotaError
+	if !errors.As(err, &quotaErr) {
+		t.Fatalf("expected kiroQuotaError, got %T %v", err, err)
+	}
+	if len(quotaErr.Endpoints) != 2 {
+		t.Fatalf("expected both endpoints in quota error, got %#v", quotaErr.Endpoints)
+	}
+}
+
+func TestCallKiroAPIReturnsCooldownErrorWithoutSendingWhenEndpointCooling(t *testing.T) {
+	resetEndpointCooldownsForTest()
+	t.Cleanup(resetEndpointCooldownsForTest)
+
+	cfgFile := t.TempDir() + "/config.json"
+	if err := config.Init(cfgFile); err != nil {
+		t.Fatalf("config.Init: %v", err)
+	}
+	if err := config.UpdatePreferredEndpoint("kiro"); err != nil {
+		t.Fatalf("set endpoint: %v", err)
+	}
+	if err := config.UpdateEndpointFallback(false); err != nil {
+		t.Fatalf("disable endpoint fallback: %v", err)
+	}
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	oldEndpoints := kiroEndpoints
+	ep := kiroEndpoint{URL: server.URL, Origin: "AI_EDITOR", Name: "cooling"}
+	kiroEndpoints = []kiroEndpoint{ep}
+	t.Cleanup(func() { kiroEndpoints = oldEndpoints })
+
+	account := &config.Account{
+		ID:          "cooling-account",
+		Email:       "cooling@example.com",
+		AccessToken: "token-test",
+		ProfileArn:  "arn:aws:codewhisperer:profile/test",
+	}
+	recordKiroEndpointQuotaFailure(account, ep)
+
+	err := CallKiroAPI(account, testKiroPayload(), &KiroStreamCallback{})
+	var cooldownErr *endpointCooldownError
+	if !errors.As(err, &cooldownErr) {
+		t.Fatalf("expected endpointCooldownError, got %T %v", err, err)
+	}
+	if requests != 0 {
+		t.Fatalf("expected no upstream request while endpoint is cooling, got %d", requests)
+	}
+}
+
 func TestSetPayloadProfileArnForAccountUsesAccountArn(t *testing.T) {
 	payload := &KiroPayload{ProfileArn: "arn:aws:codewhisperer:profile/stale"}
 
@@ -293,6 +463,16 @@ func TestSetPayloadProfileArnForAccountPreservesExplicitPayloadArn(t *testing.T)
 	if payload.ProfileArn != "arn:aws:codewhisperer:profile/explicit" {
 		t.Fatalf("expected explicit payload profile ARN to be preserved, got %q", payload.ProfileArn)
 	}
+}
+
+func testKiroPayload() *KiroPayload {
+	payload := &KiroPayload{ProfileArn: "arn:aws:codewhisperer:profile/test"}
+	payload.ConversationState.CurrentMessage.UserInputMessage = KiroUserInputMessage{
+		Content: "hello",
+		ModelID: "claude-sonnet-4.5",
+		Origin:  "AI_EDITOR",
+	}
+	return payload
 }
 
 func mustParseURL(t *testing.T, raw string) *url.URL {

@@ -124,8 +124,8 @@ func TestClaudeContinuationAfterReadPlanGetsToolUseNudge(t *testing.T) {
 
 	payload := ClaudeToKiro(req, false)
 	content := payload.ConversationState.CurrentMessage.UserInputMessage.Content
-	if payload.ToolContract == nil || !payload.ToolContract.RequiresTool {
-		t.Fatalf("expected tool contract for continuation after read plan")
+	if payload.ToolContract != nil {
+		t.Fatalf("authorized continuation must not become a hard tool contract")
 	}
 	if strings.Contains(content, "Kiro-Go tool contract") {
 		t.Fatalf("tool contract must not be injected into user content, got %q", content)
@@ -212,8 +212,8 @@ func TestClaudeWriteHandoffAuthorizationGetsToolUseNudge(t *testing.T) {
 
 	payload := ClaudeToKiro(req, false)
 	content := payload.ConversationState.CurrentMessage.UserInputMessage.Content
-	if payload.ToolContract == nil || !payload.ToolContract.RequiresTool {
-		t.Fatalf("expected tool contract after HANDOFF write authorization")
+	if payload.ToolContract != nil {
+		t.Fatalf("handoff authorization must not become a hard tool contract")
 	}
 	if strings.Contains(content, "Kiro-Go tool contract") {
 		t.Fatalf("tool contract must not be injected into user content, got %q", content)
@@ -267,6 +267,25 @@ func TestSyntheticReadToolUsesFilePathSchemaKey(t *testing.T) {
 	}
 	if _, exists := payload.ToolContract.SyntheticToolUse.Input["path"]; exists {
 		t.Fatalf("did not expect fallback path key when file_path exists")
+	}
+}
+
+func TestReadonlyFileCheckWithoutReadToolDoesNotCreateHardContract(t *testing.T) {
+	var tool ClaudeTool
+	tool.Name = "write"
+	tool.Description = "Write a file"
+	tool.InputSchema = map[string]interface{}{"type": "object"}
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{tool},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "检查 `_probe_sched.py` 是否存在"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract != nil {
+		t.Fatalf("readonly file check without read-like tool must not create hard contract")
 	}
 }
 

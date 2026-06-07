@@ -610,17 +610,19 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 	source := ""
 	if isReadonlyInspectionRequest(strings.ToLower(strings.TrimSpace(currentUser))) {
 		source = "readonly-inspection"
-	} else if shouldForceToolUseAfterContinuation(currentUser, previousAssistant) {
-		source = "authorized-continuation"
 	}
 	if source == "" {
+		return nil
+	}
+	syntheticToolUse := synthesizeReadonlyFileToolUse(currentUser, source, tools)
+	if syntheticToolUse == nil {
 		return nil
 	}
 	return &ToolContract{
 		RequiresTool:     true,
 		Source:           source,
 		AvailableTools:   available,
-		SyntheticToolUse: synthesizeReadonlyFileToolUse(currentUser, source, tools),
+		SyntheticToolUse: syntheticToolUse,
 	}
 }
 

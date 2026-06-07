@@ -545,31 +545,34 @@ func appendProjectContextLine(prompt, projectContext string) string {
 	return strings.TrimSpace(collapseBlankLines(strings.Join(out, "\n")))
 }
 
-const backendToolUseNudge = "[Kiro-Go backend note: The user has already authorized continuation. If the previous assistant turn said it would read files, inspect logs, grep code, or gather evidence, do not restate that plan. Emit the real structured tool_use calls now. If no tool is needed, provide the final answer.]"
+const backendToolUseNudge = "[Kiro-Go backend note: The user has already authorized continuation or requested a readonly check. If the task involves verifying a file, listing files, reading files/logs, grepping code, or gathering evidence, do not write a natural-language placeholder such as \"I will check\" or \"Verifying ...\". Emit the real structured tool_use calls now. If no tool is needed, provide the final answer.]"
 
 func shouldForceToolUseAfterContinuation(currentUser, previousAssistant string) bool {
 	current := strings.ToLower(strings.TrimSpace(currentUser))
 	if current == "" {
 		return false
 	}
+	if isReadonlyInspectionRequest(current) {
+		return true
+	}
 	continuations := map[string]bool{
-		"继续":   true,
-		"可以":   true,
-		"确定":   true,
-		"修一下":  true,
-		"处理":   true,
-		"继续处理": true,
-		"继续啊":  true,
-		"写":    true,
-		"写吧":   true,
-		"记一下":  true,
-		"记录":   true,
+		"继续":         true,
+		"可以":         true,
+		"确定":         true,
+		"修一下":        true,
+		"处理":         true,
+		"继续处理":       true,
+		"继续啊":        true,
+		"写":          true,
+		"写吧":         true,
+		"记一下":        true,
+		"记录":         true,
 		"记进 handoff": true,
 		"写进 handoff": true,
-		"行":    true,
-		"好":    true,
-		"ok":   true,
-		"okay": true,
+		"行":          true,
+		"好":          true,
+		"ok":         true,
+		"okay":       true,
 	}
 	if !continuations[current] {
 		return false
@@ -587,6 +590,35 @@ func shouldForceToolUseAfterContinuation(currentUser, previousAssistant string) 
 		"tool_use", "发工具", "调用工具",
 	} {
 		if strings.Contains(prev, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isReadonlyInspectionRequest(current string) bool {
+	if current == "" {
+		return false
+	}
+	hasInspectionVerb := false
+	for _, marker := range []string{
+		"确认", "检查", "验证", "看下", "看一下", "查下", "查一下",
+		"confirm", "check", "verify", "inspect",
+	} {
+		if strings.Contains(current, marker) {
+			hasInspectionVerb = true
+			break
+		}
+	}
+	if !hasInspectionVerb {
+		return false
+	}
+	for _, marker := range []string{
+		"是否", "有没有", "还在", "存在", "删除", "删掉", "删了",
+		".py", ".go", ".js", ".ts", ".json", ".md", ".log", ".txt",
+		"_", "/", "\\", "file", "path", "exists", "deleted", "present",
+	} {
+		if strings.Contains(current, marker) {
 			return true
 		}
 	}

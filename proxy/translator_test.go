@@ -148,6 +148,39 @@ func TestClaudeNormalContinuationDoesNotGetToolUseNudge(t *testing.T) {
 	}
 }
 
+func TestClaudeReadonlyFileCheckGetsToolUseNudge(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "把临时探针文件 _probe_sched.py 的删除再确认一下"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	content := payload.ConversationState.CurrentMessage.UserInputMessage.Content
+	if !strings.Contains(content, backendToolUseNudge) {
+		t.Fatalf("expected backend tool-use nudge for readonly file check, got %q", content)
+	}
+	if !strings.Contains(content, "_probe_sched.py") {
+		t.Fatalf("expected original file check request preserved, got %q", content)
+	}
+}
+
+func TestClaudeCasualConfirmQuestionDoesNotGetToolUseNudge(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "你确认这个思路是对的吗？"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	content := payload.ConversationState.CurrentMessage.UserInputMessage.Content
+	if strings.Contains(content, backendToolUseNudge) {
+		t.Fatalf("did not expect backend tool-use nudge for casual confirmation, got %q", content)
+	}
+}
+
 func TestClaudeWriteHandoffAuthorizationGetsToolUseNudge(t *testing.T) {
 	req := &ClaudeRequest{
 		Model: "claude-opus-4.8",

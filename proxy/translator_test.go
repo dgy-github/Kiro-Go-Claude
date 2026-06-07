@@ -151,6 +151,49 @@ func TestClaudeNormalContinuationDoesNotGetToolUseNudge(t *testing.T) {
 	}
 }
 
+func TestClaudeContinuationAfterGitStatusPlanSynthesizesCommand(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeExecCommandTool()},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "上传 nanocodex 到 GitLab"},
+			{Role: "assistant", Content: "先侦察 git 状态：是否已 init，有无 commit，有无 remote。并行查 git 状态。"},
+			{Role: "user", Content: "继续"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract == nil || payload.ToolContract.SyntheticToolUse == nil {
+		t.Fatalf("expected synthetic git status command")
+	}
+	if payload.ToolContract.Source != "authorized-continuation" {
+		t.Fatalf("expected authorized-continuation source, got %q", payload.ToolContract.Source)
+	}
+	tu := payload.ToolContract.SyntheticToolUse
+	if tu.Name != "execCommand" {
+		t.Fatalf("expected execCommand tool, got %q", tu.Name)
+	}
+	if got := tu.Input["cmd"]; got != "git status --short --branch" {
+		t.Fatalf("expected git status command, got %#v", got)
+	}
+}
+
+func TestClaudeContinuationAfterGitStatusPlanWithoutShellToolDoesNotCreateContract(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeReadTool()},
+		Messages: []ClaudeMessage{
+			{Role: "assistant", Content: "并行查 git 状态。"},
+			{Role: "user", Content: "继续"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract != nil {
+		t.Fatalf("git status continuation without shell-like tool must not create hard contract")
+	}
+}
+
 func TestClaudeReadonlyFileCheckGetsToolUseNudge(t *testing.T) {
 	req := &ClaudeRequest{
 		Model: "claude-opus-4.8",
@@ -326,6 +369,21 @@ func testClaudeReadTool() ClaudeTool {
 				"path": map[string]interface{}{"type": "string"},
 			},
 			"required": []interface{}{"path"},
+		},
+	}
+}
+
+func testClaudeExecCommandTool() ClaudeTool {
+	return ClaudeTool{
+		Name:        "exec_command",
+		Description: "Run a shell command",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"cmd":         map[string]interface{}{"type": "string"},
+				"description": map[string]interface{}{"type": "string"},
+			},
+			"required": []interface{}{"cmd"},
 		},
 	}
 }

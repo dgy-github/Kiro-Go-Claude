@@ -575,6 +575,9 @@ func shouldForceToolUseAfterContinuation(currentUser, previousAssistant string) 
 	if prev == "" {
 		return false
 	}
+	if mentionsGitStatus(prev) {
+		return true
+	}
 	for _, marker := range []string{
 		"先读", "读取", "读 ", "读`", "读 _", "并行读", "继续读",
 		"看日志", "查日志", "检查日志", "取证", "诊断",
@@ -610,11 +613,13 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 	source := ""
 	if isReadonlyInspectionRequest(strings.ToLower(strings.TrimSpace(currentUser))) {
 		source = "readonly-inspection"
+	} else if shouldForceToolUseAfterContinuation(currentUser, previousAssistant) {
+		source = "authorized-continuation"
 	}
 	if source == "" {
 		return nil
 	}
-	syntheticToolUse := synthesizeReadonlyFileToolUse(currentUser, source, tools)
+	syntheticToolUse := synthesizeSafeToolUse(currentUser, previousAssistant, source, tools)
 	if syntheticToolUse == nil {
 		return nil
 	}
@@ -703,6 +708,17 @@ func toolNamesFromWrappers(tools []KiroToolWrapper) []string {
 	return names
 }
 
+func synthesizeSafeToolUse(currentUser, previousAssistant, source string, tools []KiroToolWrapper) *KiroToolUse {
+	switch source {
+	case "readonly-inspection":
+		return synthesizeReadonlyFileToolUse(currentUser, source, tools)
+	case "authorized-continuation":
+		return synthesizeSafeContinuationToolUse(currentUser, previousAssistant, tools)
+	default:
+		return nil
+	}
+}
+
 func synthesizeReadonlyFileToolUse(currentUser, source string, tools []KiroToolWrapper) *KiroToolUse {
 	if source != "readonly-inspection" {
 		return nil
@@ -726,6 +742,57 @@ func synthesizeReadonlyFileToolUse(currentUser, source string, tools []KiroToolW
 	return nil
 }
 
+func synthesizeSafeContinuationToolUse(currentUser, previousAssistant string, tools []KiroToolWrapper) *KiroToolUse {
+	current := strings.ToLower(strings.TrimSpace(currentUser))
+	previous := strings.ToLower(previousAssistant)
+	if !isContinuationAck(current) || !mentionsGitStatus(previous) {
+		return nil
+	}
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.ToolSpecification.Name)
+		if !isShellLikeToolName(name) {
+			continue
+		}
+		inputKey := chooseCommandInputKey(tool)
+		input := map[string]interface{}{inputKey: "git status --short --branch"}
+		if descKey := chooseCommandDescriptionKey(tool); descKey != "" {
+			input[descKey] = "Inspect git status"
+		}
+		return &KiroToolUse{
+			ToolUseID: "toolu_kiro_go_" + strings.ReplaceAll(uuid.New().String(), "-", ""),
+			Name:      name,
+			Input:     input,
+		}
+	}
+	return nil
+}
+
+func isContinuationAck(current string) bool {
+	switch strings.TrimSpace(strings.ToLower(current)) {
+	case "继续", "可以", "确定", "是的", "对", "2", "ok", "okay", "yes", "y":
+		return true
+	default:
+		return false
+	}
+}
+
+func mentionsGitStatus(text string) bool {
+	text = strings.ToLower(text)
+	return strings.Contains(text, "git status") ||
+		strings.Contains(text, "git 状态") ||
+		strings.Contains(text, "git状态")
+}
+
+func isShellLikeToolName(name string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(name, "_", ""), "-", ""))
+	return normalized == "bash" ||
+		normalized == "shell" ||
+		normalized == "execcommand" ||
+		normalized == "runcommand" ||
+		normalized == "terminal" ||
+		strings.Contains(normalized, "execcommand")
+}
+
 func isReadLikeToolName(name string) bool {
 	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(name, "_", ""), "-", ""))
 	return normalized == "read" ||
@@ -734,21 +801,46 @@ func isReadLikeToolName(name string) bool {
 		strings.Contains(normalized, "readfile")
 }
 
+func chooseCommandInputKey(tool KiroToolWrapper) string {
+	props := toolInputProperties(tool)
+	for _, key := range []string{"command", "cmd", "script"} {
+		if _, exists := props[key]; exists {
+			return key
+		}
+	}
+	return "command"
+}
+
+func chooseCommandDescriptionKey(tool KiroToolWrapper) string {
+	props := toolInputProperties(tool)
+	for _, key := range []string{"description", "desc"} {
+		if _, exists := props[key]; exists {
+			return key
+		}
+	}
+	return ""
+}
+
 func chooseFilePathInputKey(tool KiroToolWrapper) string {
-	schema, ok := tool.ToolSpecification.InputSchema.JSON.(map[string]interface{})
-	if !ok {
-		return "path"
-	}
-	props, ok := schema["properties"].(map[string]interface{})
-	if !ok {
-		return "path"
-	}
+	props := toolInputProperties(tool)
 	for _, key := range []string{"file_path", "filepath", "path", "absolute_path", "filename", "file"} {
 		if _, exists := props[key]; exists {
 			return key
 		}
 	}
 	return "path"
+}
+
+func toolInputProperties(tool KiroToolWrapper) map[string]interface{} {
+	schema, ok := tool.ToolSpecification.InputSchema.JSON.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	props, ok := schema["properties"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	return props
 }
 
 func extractLikelyFilePath(text string) string {

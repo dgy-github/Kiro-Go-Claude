@@ -1,5 +1,5 @@
 {
   "version": "1.1.3",
-  "changelog": "Claude Desktop gateway stability fix: coordinates Claude Code native /compact with Kiro-Go request-size guarding; preserves active tool_use/tool_result context during truncation; infers the live Claude cwd from transcripts for auto compact so stale ProjectDir config does not steer new sessions into the wrong project; avoids injecting compact ProjectDir as the live prompt project root; classifies 400/413 as non-retryable; and treats endpoint/model-specific 429 quota responses as endpoint cooldowns unless account usage is truly at the account limit.",
-  "download": "https://github.com/dgy-github/Kiro-Go-Claude/releases/tag/v1.1.3-claude-fix.8"
+  "changelog": "Claude Desktop gateway stability fix: filters visible gateway-injection defense narration such as Claude Agent SDK / c.entrypoint / I am Kiro before it reaches Claude Code; applies the filter to Anthropic, OpenAI, and Responses outputs including streaming chunks; preserves normal answer text; and keeps the previous native compact cwd, active tool-turn, non-retryable 400/413, and 429 endpoint-cooldown fixes.",
+  "download": "https://github.com/dgy-github/Kiro-Go-Claude/releases/tag/v1.1.3-claude-fix.9"
 }

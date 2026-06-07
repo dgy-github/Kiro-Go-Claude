@@ -199,6 +199,7 @@ func (h *Handler) handleResponsesNonStream(
 		}
 
 		finalContent, _ := extractThinkingFromContent(content)
+		finalContent = stripVisibleAssistantPollutionText(finalContent)
 		if !thinking {
 			reasoningContent = ""
 		}
@@ -454,6 +455,8 @@ func (h *Handler) handleResponsesStream(
 			})
 		}
 
+		visiblePollutionFilter := visibleAssistantPollutionStreamFilter{}
+
 		callback := &KiroStreamCallback{
 			OnText: func(text string, isThinking bool) {
 				if text == "" {
@@ -468,13 +471,17 @@ func (h *Handler) handleResponsesStream(
 				if toolState.ShouldSuppressVisibleText() {
 					return
 				}
+				filteredText := visiblePollutionFilter.Filter(text, false)
+				if filteredText == "" {
+					return
+				}
 				ensureMessageStarted()
 				send("response.output_text.delta", map[string]interface{}{
 					"type":          "response.output_text.delta",
 					"item_id":       messageItemID,
 					"output_index":  outputIndex,
 					"content_index": contentIndex,
-					"delta":         text,
+					"delta":         filteredText,
 				})
 				responseStarted = true
 			},
@@ -578,7 +585,20 @@ func (h *Handler) handleResponsesStream(
 			return
 		}
 
+		if pendingText := visiblePollutionFilter.Filter("", true); pendingText != "" && !toolState.ShouldSuppressVisibleText() {
+			ensureMessageStarted()
+			send("response.output_text.delta", map[string]interface{}{
+				"type":          "response.output_text.delta",
+				"item_id":       messageItemID,
+				"output_index":  outputIndex,
+				"content_index": contentIndex,
+				"delta":         pendingText,
+			})
+			responseStarted = true
+		}
+
 		finalContent, _ := extractThinkingFromContent(fullText.String())
+		finalContent = stripVisibleAssistantPollutionText(finalContent)
 		reasoning := reasoningText.String()
 		if !thinking {
 			reasoning = ""

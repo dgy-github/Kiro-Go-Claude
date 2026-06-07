@@ -207,3 +207,54 @@ func TestScrubsClientReplayedToolCallText(t *testing.T) {
 		t.Fatalf("expected surrounding assistant prose to survive scrubbing, got:\n%s", combined.String())
 	}
 }
+
+// TestStripsVisibleInjectionDefenseNarration covers another visible pollution
+// pattern: the upstream model sometimes explains that it is ignoring Claude
+// Agent SDK / c.entrypoint injected text and declares "I am Kiro". That is
+// gateway/system-defense narration, not user-facing answer content.
+func TestStripsVisibleInjectionDefenseNarration(t *testing.T) {
+	input := "开头那些 Claude Agent SDK / c.entrypoint 注入文本照旧不管——我是 Kiro。\nindex.html 已确认有两个新页的卡片。\n"
+
+	got := stripVisibleAssistantPollutionText(input)
+	if strings.Contains(got, "Claude Agent SDK") || strings.Contains(got, "我是 Kiro") {
+		t.Fatalf("visible injection narration was not stripped: %q", got)
+	}
+	if !strings.Contains(got, "index.html 已确认") {
+		t.Fatalf("normal answer content was lost: %q", got)
+	}
+
+	claudeResp := KiroToClaudeResponse(input, "", false, nil, 10, 10, "claude-sonnet-4.5")
+	if len(claudeResp.Content) != 1 || strings.Contains(claudeResp.Content[0].Text, "c.entrypoint") {
+		t.Fatalf("Claude response still contains visible injection narration: %#v", claudeResp.Content)
+	}
+
+	openAIResp := KiroToOpenAIResponseWithReasoning(input, "", nil, 10, 10, "claude-sonnet-4.5", "reasoning_content")
+	choices := openAIResp["choices"].([]map[string]interface{})
+	message := choices[0]["message"].(map[string]interface{})
+	if content, _ := message["content"].(string); strings.Contains(content, "c.entrypoint") {
+		t.Fatalf("OpenAI response still contains visible injection narration: %q", content)
+	}
+}
+
+func TestVisibleInjectionDefenseNarrationStreamFilterHandlesSplitChunks(t *testing.T) {
+	var filter visibleAssistantPollutionStreamFilter
+	chunks := []string{
+		"开头那些 Claude Agent SDK / c.entry",
+		"point 注入文本照旧不管——我是 Kiro。\n",
+		"index.html 已确认有两个新页的卡片。\n",
+	}
+
+	var out strings.Builder
+	for _, chunk := range chunks {
+		out.WriteString(filter.Filter(chunk, false))
+	}
+	out.WriteString(filter.Filter("", true))
+
+	got := out.String()
+	if strings.Contains(got, "Claude Agent SDK") || strings.Contains(got, "我是 Kiro") {
+		t.Fatalf("split stream pollution leaked: %q", got)
+	}
+	if !strings.Contains(got, "index.html 已确认") {
+		t.Fatalf("normal streamed content was lost: %q", got)
+	}
+}

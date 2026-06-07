@@ -24,6 +24,7 @@ The `v1.1.3-claude-fix` release adds stability fixes for long coding-agent sessi
 - Extends the tool contract to delegated execution, local file/location lookup, and named-file work so Claude Code emits real tools instead of stopping after "I will read/check".
 - Adds a pending-tool-intent contract: if the previous assistant turn already promised tool-backed work and the user replies with a short confirmation such as "continue" or "read first", the gateway routes the turn to real tool use instead of another prose placeholder.
 - Repairs assistant-side tool-plan placeholders: if upstream starts a turn with text such as "I will grep/read first" instead of a structured tool call, the gateway holds that text, retries once with a tool contract, and only releases the repaired `tool_use`.
+- Filters visible gateway-injection defense narration such as `Claude Agent SDK / c.entrypoint ... I am Kiro`, so those system-boundary asides do not appear in Claude Code answers or get replayed into later turns.
 - Retries the next upstream endpoint when a stream breaks before any assistant text or tool call is emitted, reducing surfaced `stream ID ... INTERNAL_ERROR` failures.
 - Coordinates Claude Code native `/compact` with Kiro-Go request-size guarding so long sessions do not get double-summarized or lose active `tool_use` / `tool_result` context.
 - Reads the live Claude transcript `cwd` when auto-running native `/compact`, so stale compact config cannot steer a new session into the wrong project.
@@ -83,7 +84,7 @@ go build -o kiro-go .
 
 ### Windows Claude Desktop Build
 
-Download `kiro-go-v1.1.3-claude-fix.8-windows-amd64.zip` from the release page, unzip it, then run:
+Download `kiro-go-v1.1.3-claude-fix.9-windows-amd64.zip` from the release page, unzip it, then run:
 
 ```powershell
 .\start-kiro-go-claude.bat

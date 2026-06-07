@@ -985,6 +985,7 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 		var assistantToolPlanHold strings.Builder
 		assistantToolPlanHolding := toolState.ShouldWatchAssistantPlan()
 		assistantToolPlanSuppressed := false
+		visiblePollutionFilter := visibleAssistantPollutionStreamFilter{}
 
 		sendText := func(text string, thinkingState int) {
 			if thinkingState == 0 {
@@ -1093,7 +1094,11 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 				thinkingStarted = false
 			}
 
-			textBuffer += text
+			filteredText := visiblePollutionFilter.Filter(text, forceFlush)
+			if filteredText == "" && !(forceFlush && textBuffer != "") {
+				return
+			}
+			textBuffer += filteredText
 
 			for {
 				if !inThinkingBlock {
@@ -1708,6 +1713,7 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, payload *KiroPayload
 		var eventThinkingOpen bool
 		responseStarted := false
 		toolState := newToolStateMachine(payload)
+		visiblePollutionFilter := visibleAssistantPollutionStreamFilter{}
 
 		sendChunk := func(content string, thinkingState int) {
 			if content == "" && thinkingState == 2 {
@@ -1832,7 +1838,11 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, payload *KiroPayload
 				thinkingStarted = false
 			}
 
-			textBuffer += text
+			filteredText := visiblePollutionFilter.Filter(text, forceFlush)
+			if filteredText == "" && !(forceFlush && textBuffer != "") {
+				return
+			}
+			textBuffer += filteredText
 
 			for {
 				if !inThinkingBlock {

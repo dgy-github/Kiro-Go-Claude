@@ -24,6 +24,7 @@
 - 将 tool contract 扩展到委托执行、本地文件/位置查询、点名文件处理任务，减少 Claude Code 说完“我先读/我检查”就停住的问题。
 - 增加 pending-tool-intent 机制：如果上一轮 assistant 已经承诺要读文件、查日志或执行工具动作，而用户只回复“继续”“先读”这类短确认，网关会把这一轮导向真实工具调用，而不是再次生成口头占位。
 - 增加输出侧工具计划 repair：如果上游本轮直接输出“我先 grep/read/查一下”而不是结构化工具调用，网关会先 hold 住这段文本，触发一次 tool contract 修复，只把修复后的 `tool_use` 返回给客户端。
+- 过滤可见的网关注入防御话术，例如 `Claude Agent SDK / c.entrypoint ... 我是 Kiro`，避免这类系统边界说明出现在 Claude Code 正文里并被后续会话反复 replay。
 - 当上游流在尚未输出任何文本或工具调用前断开时，自动尝试下一个上游端点，降低 `stream ID ... INTERNAL_ERROR` 直接暴露给客户端的概率。
 - 协调 Claude Code 原生 `/compact` 与 Kiro-Go 请求大小保护，避免长会话被重复压缩或丢失活跃的 `tool_use` / `tool_result` 上下文。
 - 自动触发原生 `/compact` 时优先读取 Claude transcript 里的真实 `cwd`，避免旧的 compact 配置把新会话带到错误项目目录。
@@ -81,7 +82,7 @@ go build -o kiro-go .
 
 ### Windows Claude Desktop 构建版
 
-从 Release 页面下载 `kiro-go-v1.1.3-claude-fix.8-windows-amd64.zip`，解压后运行：
+从 Release 页面下载 `kiro-go-v1.1.3-claude-fix.9-windows-amd64.zip`，解压后运行：
 
 ```powershell
 .\start-kiro-go-claude.bat

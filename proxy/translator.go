@@ -1741,6 +1741,7 @@ func shortenToolName(name string) string {
 
 func KiroToClaudeResponse(content, thinkingContent string, includeEmptyThinkingBlock bool, toolUses []KiroToolUse, inputTokens, outputTokens int, model string) *ClaudeResponse {
 	blocks := make([]ClaudeContentBlock, 0)
+	content = stripVisibleAssistantPollutionText(content)
 
 	if thinkingContent != "" || includeEmptyThinkingBlock {
 		blocks = append(blocks, ClaudeContentBlock{
@@ -2240,6 +2241,125 @@ func currentToolResultsMatchLastAssistant(history []KiroHistoryMessage, currentT
 // and the model can recover within an ongoing session.
 var pollutedToolCallTextPattern = regexp.MustCompile(`\[Called tool [^\]]*\]`)
 var pollutedAssistantToolResultsPattern = regexp.MustCompile(`(?m)^\[(?:Read|Edit|Write|Bash|Grep|Glob|LS|MultiEdit|TodoWrite|WebFetch|WebSearch)\]\s`)
+
+const visibleAssistantPollutionMaxHoldRunes = 240
+
+// visibleAssistantPollutionStreamFilter keeps a small line buffer so gateway /
+// system-injection defense narration can be removed before it is streamed to
+// Claude Code. The bad text is usually a first-line aside such as
+// "Claude Agent SDK / c.entrypoint ... 我是 Kiro"; once streamed, clients store it
+// as real assistant text and replay it into the next turn.
+type visibleAssistantPollutionStreamFilter struct {
+	pending string
+}
+
+func (f *visibleAssistantPollutionStreamFilter) Filter(text string, forceFlush bool) string {
+	if text != "" {
+		f.pending += text
+	}
+
+	var out strings.Builder
+	for {
+		idx := strings.IndexByte(f.pending, '\n')
+		if idx < 0 {
+			break
+		}
+		line := f.pending[:idx+1]
+		f.pending = f.pending[idx+1:]
+		if !isVisibleAssistantInjectionNarrationLine(line) {
+			out.WriteString(line)
+		}
+	}
+
+	if forceFlush {
+		if f.pending != "" && !isVisibleAssistantInjectionNarrationLine(f.pending) {
+			out.WriteString(f.pending)
+		}
+		f.pending = ""
+		return out.String()
+	}
+
+	if f.pending == "" {
+		return out.String()
+	}
+	if !mightBeVisibleAssistantInjectionNarrationPrefix(f.pending) || len([]rune(f.pending)) > visibleAssistantPollutionMaxHoldRunes {
+		if !isVisibleAssistantInjectionNarrationLine(f.pending) {
+			out.WriteString(f.pending)
+		}
+		f.pending = ""
+	}
+	return out.String()
+}
+
+func stripVisibleAssistantPollutionText(content string) string {
+	if !maybeContainsVisibleAssistantPollution(content) {
+		return content
+	}
+	var out strings.Builder
+	rest := content
+	for rest != "" {
+		idx := strings.IndexByte(rest, '\n')
+		var line string
+		if idx >= 0 {
+			line = rest[:idx+1]
+			rest = rest[idx+1:]
+		} else {
+			line = rest
+			rest = ""
+		}
+		if isVisibleAssistantInjectionNarrationLine(line) {
+			continue
+		}
+		out.WriteString(line)
+	}
+	cleaned := strings.TrimLeft(out.String(), "\r\n")
+	cleaned = regexp.MustCompile(`\n{3,}`).ReplaceAllString(cleaned, "\n\n")
+	return cleaned
+}
+
+func maybeContainsVisibleAssistantPollution(content string) bool {
+	lower := strings.ToLower(content)
+	return strings.Contains(lower, "claude agent sdk") ||
+		strings.Contains(lower, "c.entrypoint") ||
+		strings.Contains(lower, "我是 kiro") ||
+		strings.Contains(lower, "我是kiro")
+}
+
+func isVisibleAssistantInjectionNarrationLine(line string) bool {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	if lower == "" {
+		return false
+	}
+	hasSDK := strings.Contains(lower, "claude agent sdk")
+	hasEntrypoint := strings.Contains(lower, "c.entrypoint") || strings.Contains(lower, "entrypoint")
+	hasInjectionNarration := strings.Contains(lower, "注入") ||
+		strings.Contains(lower, "我是 kiro") ||
+		strings.Contains(lower, "我是kiro") ||
+		strings.Contains(lower, "照旧不管") ||
+		strings.Contains(lower, "不管")
+	return hasSDK && hasEntrypoint && hasInjectionNarration
+}
+
+func mightBeVisibleAssistantInjectionNarrationPrefix(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	if lower == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"开头那些",
+		"claude agent sdk",
+		"c.entrypoint",
+		"entrypoint",
+		"注入文本",
+		"我是 kiro",
+		"我是kiro",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
 
 // stripPollutedToolCallText removes legacy tool-call narration from text and
 // tidies up the leftover whitespace.
@@ -3064,6 +3184,7 @@ func KiroToOpenAIResponse(content string, toolUses []KiroToolUse, inputTokens, o
 	msg := OpenAIMessage{
 		Role: "assistant",
 	}
+	content = stripVisibleAssistantPollutionText(content)
 
 	finishReason := "stop"
 
@@ -3132,6 +3253,7 @@ func extractThinkingFromContent(content string) (string, string) {
 // KiroToOpenAIResponseWithReasoning 带 reasoning_content 的 OpenAI 响应
 func KiroToOpenAIResponseWithReasoning(content, reasoningContent string, toolUses []KiroToolUse, inputTokens, outputTokens int, model, thinkingFormat string) map[string]interface{} {
 	finishReason := "stop"
+	content = stripVisibleAssistantPollutionText(content)
 
 	message := map[string]interface{}{
 		"role": "assistant",

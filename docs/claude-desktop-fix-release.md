@@ -19,6 +19,7 @@ Upstream project:
 - Synthesizes safe readonly file `tool_use` calls when the user asks to verify a concrete file path and a read-like tool is available, instead of relying on upstream text generation.
 - Synthesizes a narrow safe `git status --short --branch` tool call after an authorized continuation when the previous assistant turn explicitly planned `git status` and a shell-like tool is available.
 - Synthesizes a narrow readonly repo-audit command after an authorized continuation when the previous assistant turn explicitly planned checks such as `git toplevel`, `.git`, remotes, and sensitive filename candidates.
+- Restores client tool names before returning `tool_use` responses. Kiro-safe names such as `bash` / `execCommand` are mapped back to the caller's original names such as `Bash` / `exec_command`, which is required for Claude Code-style clients to execute the tool.
 - Avoids hard `tool_contract_violation` errors for broad continuation/authorization turns unless the client explicitly sends `tool_choice` or Kiro-Go can synthesize a safe readonly file tool call.
 - Raises Kiro upstream streaming request timeout from 90 seconds to 5 minutes for large-context Claude Code sessions.
 - Preserves image-bearing current `tool_result` payloads while keeping orphan text tool results flattened for upstream compatibility.

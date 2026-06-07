@@ -444,6 +444,32 @@ func TestToolRunnerActionSeparatesSyntheticFromUpstreamRepair(t *testing.T) {
 	}
 }
 
+func TestRestoreToolUseNamesUsesClientToolNames(t *testing.T) {
+	toolUses := []KiroToolUse{
+		{ToolUseID: "t1", Name: "bash", Input: map[string]interface{}{"command": "git status"}},
+		{ToolUseID: "t2", Name: "execCommand", Input: map[string]interface{}{"cmd": "git status"}},
+		{ToolUseID: "t3", Name: "read", Input: map[string]interface{}{"path": "README.md"}},
+	}
+
+	restored := restoreToolUseNames(toolUses, map[string]string{
+		"bash":        "Bash",
+		"execCommand": "exec_command",
+	})
+
+	if restored[0].Name != "Bash" {
+		t.Fatalf("expected Bash, got %q", restored[0].Name)
+	}
+	if restored[1].Name != "exec_command" {
+		t.Fatalf("expected exec_command, got %q", restored[1].Name)
+	}
+	if restored[2].Name != "read" {
+		t.Fatalf("unexpected change for unmapped tool: %q", restored[2].Name)
+	}
+	if toolUses[0].Name != "bash" {
+		t.Fatalf("restore must not mutate caller slice")
+	}
+}
+
 func testClaudeReadTool() ClaudeTool {
 	return ClaudeTool{
 		Name:        "read",

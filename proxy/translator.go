@@ -594,43 +594,87 @@ func shouldForceToolUseAfterContinuation(currentUser, previousAssistant string) 
 
 func buildToolContract(toolChoice interface{}, currentUser, previousAssistant string, tools []KiroToolWrapper) *ToolContract {
 	available := toolNamesFromWrappers(tools)
+	currentLower := strings.ToLower(strings.TrimSpace(currentUser))
+	previousLower := strings.ToLower(previousAssistant)
+	interesting := isContinuationAck(currentLower) ||
+		isReadonlyInspectionRequest(currentLower) ||
+		mentionsGitStatus(previousLower) ||
+		mentionsGitRepoAudit(previousLower)
 	if len(available) == 0 {
+		if interesting {
+			logToolContractDecision("no-tools", currentLower, previousLower, available, nil)
+		}
 		return nil
 	}
 
 	if required, toolName, source, known := parseToolChoiceContract(toolChoice); known {
 		if !required {
+			if interesting {
+				logToolContractDecision("tool-choice-not-required", currentLower, previousLower, available, nil)
+			}
 			return nil
 		}
-		return &ToolContract{
+		contract := &ToolContract{
 			RequiresTool:   true,
 			ToolName:       toolName,
 			Source:         source,
 			Mode:           toolContractModeRequireUpstreamTool,
 			AvailableTools: available,
 		}
+		logToolContractDecision("created", currentLower, previousLower, available, contract)
+		return contract
 	}
 
 	source := ""
-	if isReadonlyInspectionRequest(strings.ToLower(strings.TrimSpace(currentUser))) {
+	if isReadonlyInspectionRequest(currentLower) {
 		source = "readonly-inspection"
 	} else if shouldForceToolUseAfterContinuation(currentUser, previousAssistant) {
 		source = "authorized-continuation"
 	}
 	if source == "" {
+		if interesting {
+			logToolContractDecision("no-source", currentLower, previousLower, available, nil)
+		}
 		return nil
 	}
 	syntheticToolUse := synthesizeSafeToolUse(currentUser, previousAssistant, source, tools)
 	if syntheticToolUse == nil {
+		logToolContractDecision("no-synthetic-tool", currentLower, previousLower, available, nil)
 		return nil
 	}
-	return &ToolContract{
+	contract := &ToolContract{
 		RequiresTool:     true,
 		Source:           source,
 		Mode:             toolContractModeSyntheticToolUse,
 		AvailableTools:   available,
 		SyntheticToolUse: syntheticToolUse,
 	}
+	logToolContractDecision("created", currentLower, previousLower, available, contract)
+	return contract
+}
+
+func logToolContractDecision(reason, currentLower, previousLower string, available []string, contract *ToolContract) {
+	mode, source, syntheticName := "", "", ""
+	if contract != nil {
+		mode = contract.Mode
+		source = contract.Source
+		if contract.SyntheticToolUse != nil {
+			syntheticName = contract.SyntheticToolUse.Name
+		}
+	}
+	logger.Infof(
+		"[ToolContract] reason=%s currentContinuation=%t currentReadonly=%t prevGitStatus=%t prevRepoAudit=%t tools=%d toolNames=%q source=%q mode=%q synthetic=%q",
+		reason,
+		isContinuationAck(currentLower),
+		isReadonlyInspectionRequest(currentLower),
+		mentionsGitStatus(previousLower),
+		mentionsGitRepoAudit(previousLower),
+		len(available),
+		strings.Join(available, ","),
+		source,
+		mode,
+		syntheticName,
+	)
 }
 
 func parseToolChoiceContract(toolChoice interface{}) (required bool, toolName, source string, known bool) {

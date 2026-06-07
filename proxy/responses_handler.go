@@ -133,6 +133,7 @@ func (h *Handler) handleResponsesNonStream(
 	var lastErr error
 
 	if tu, ok := syntheticToolUse(payload); ok {
+		tu = restoreToolUseName(tu, payload.ToolNameMap)
 		outputTokens := estimateOpenAIOutputTokens("", "", []KiroToolUse{tu})
 		h.recordSuccessForApiKey(apiKeyID, estimatedInputTokens, outputTokens, 0)
 		respObj := buildResponsesObject(respID, model, "", []KiroToolUse{tu}, estimatedInputTokens, outputTokens, req)
@@ -174,7 +175,7 @@ func (h *Handler) handleResponsesNonStream(
 					content += text
 				}
 			},
-			OnToolUse:  func(tu KiroToolUse) { toolUses = append(toolUses, tu) },
+			OnToolUse:  func(tu KiroToolUse) { toolUses = append(toolUses, restoreToolUseName(tu, payload.ToolNameMap)) },
 			OnComplete: func(inTok, outTok int) { inputTokens = inTok; outputTokens = outTok },
 			OnCredits:  func(c float64) { credits = c },
 			OnContextUsage: func(pct float64) {
@@ -339,6 +340,7 @@ func (h *Handler) handleResponsesStream(
 	})
 
 	if tu, ok := syntheticToolUse(payload); ok {
+		tu = restoreToolUseName(tu, payload.ToolNameMap)
 		args, _ := json.Marshal(tu.Input)
 		item := map[string]interface{}{
 			"id":        generateOutputItemID("fc"),
@@ -466,6 +468,7 @@ func (h *Handler) handleResponsesStream(
 				responseStarted = true
 			},
 			OnToolUse: func(tu KiroToolUse) {
+				tu = restoreToolUseName(tu, payload.ToolNameMap)
 				if messageStarted {
 					send("response.content_part.done", map[string]interface{}{
 						"type":          "response.content_part.done",

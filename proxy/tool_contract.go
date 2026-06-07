@@ -67,6 +67,27 @@ func syntheticToolUse(payload *KiroPayload) (KiroToolUse, bool) {
 	return *tu, true
 }
 
+func restoreToolUseName(tu KiroToolUse, nameMap map[string]string) KiroToolUse {
+	if nameMap == nil {
+		return tu
+	}
+	if original, ok := nameMap[tu.Name]; ok && strings.TrimSpace(original) != "" {
+		tu.Name = original
+	}
+	return tu
+}
+
+func restoreToolUseNames(toolUses []KiroToolUse, nameMap map[string]string) []KiroToolUse {
+	if len(toolUses) == 0 || len(nameMap) == 0 {
+		return toolUses
+	}
+	out := make([]KiroToolUse, len(toolUses))
+	for i, tu := range toolUses {
+		out[i] = restoreToolUseName(tu, nameMap)
+	}
+	return out
+}
+
 func prepareToolContractRepair(payload *KiroPayload, observedText string) bool {
 	if payload == nil || payload.ToolContract == nil {
 		return false

@@ -871,6 +871,7 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 	}
 
 	if tu, ok := syntheticToolUse(payload); ok {
+		tu = restoreToolUseName(tu, payload.ToolNameMap)
 		ensureMessageStart()
 		h.sendSSE(w, flusher, "content_block_start", map[string]interface{}{
 			"type":  "content_block_start",
@@ -1185,6 +1186,7 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 				processClaudeText(text, isThinking, false)
 			},
 			OnToolUse: func(tu KiroToolUse) {
+				tu = restoreToolUseName(tu, payload.ToolNameMap)
 				processClaudeText("", false, true)
 				rawContentBuilder.WriteString(tu.Name)
 				if b, err := json.Marshal(tu.Input); err == nil {
@@ -1400,6 +1402,7 @@ func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, payload *KiroPayl
 	var lastErr error
 
 	if tu, ok := syntheticToolUse(payload); ok {
+		tu = restoreToolUseName(tu, payload.ToolNameMap)
 		outputTokens := estimateClaudeOutputTokens("", "", []KiroToolUse{tu})
 		resp := KiroToClaudeResponse("", "", false, []KiroToolUse{tu}, estimatedInputTokens, outputTokens, model)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -1436,7 +1439,7 @@ func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, payload *KiroPayl
 				}
 			},
 			OnToolUse: func(tu KiroToolUse) {
-				toolUses = append(toolUses, tu)
+				toolUses = append(toolUses, restoreToolUseName(tu, payload.ToolNameMap))
 			},
 			OnComplete: func(inTok, outTok int) {
 				inputTokens = inTok
@@ -1601,6 +1604,7 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, payload *KiroPayload
 
 	chatID := "chatcmpl-" + uuid.New().String()
 	if tu, ok := syntheticToolUse(payload); ok {
+		tu = restoreToolUseName(tu, payload.ToolNameMap)
 		args, _ := json.Marshal(tu.Input)
 		chunk := map[string]interface{}{
 			"id":      chatID,
@@ -1879,6 +1883,7 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, payload *KiroPayload
 				processText(text, isThinking, false)
 			},
 			OnToolUse: func(tu KiroToolUse) {
+				tu = restoreToolUseName(tu, payload.ToolNameMap)
 				processText("", false, true)
 
 				args, _ := json.Marshal(tu.Input)
@@ -2031,6 +2036,7 @@ func (h *Handler) handleOpenAINonStream(w http.ResponseWriter, payload *KiroPayl
 	var lastErr error
 
 	if tu, ok := syntheticToolUse(payload); ok {
+		tu = restoreToolUseName(tu, payload.ToolNameMap)
 		outputTokens := estimateOpenAIOutputTokens("", "", []KiroToolUse{tu})
 		resp := KiroToOpenAIResponseWithReasoning("", "", []KiroToolUse{tu}, estimatedInputTokens, outputTokens, model, config.GetThinkingConfig().OpenAIFormat)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -2065,7 +2071,7 @@ func (h *Handler) handleOpenAINonStream(w http.ResponseWriter, payload *KiroPayl
 					content += text
 				}
 			},
-			OnToolUse:  func(tu KiroToolUse) { toolUses = append(toolUses, tu) },
+			OnToolUse:  func(tu KiroToolUse) { toolUses = append(toolUses, restoreToolUseName(tu, payload.ToolNameMap)) },
 			OnComplete: func(inTok, outTok int) { inputTokens = inTok; outputTokens = outTok },
 			OnCredits:  func(c float64) { credits = c },
 			OnContextUsage: func(pct float64) {

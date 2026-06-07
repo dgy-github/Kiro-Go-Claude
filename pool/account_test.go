@@ -171,9 +171,67 @@ func newTestPool(accounts ...config.Account) *AccountPool {
 		cooldowns:   make(map[string]time.Time),
 		errorCounts: make(map[string]int),
 		modelLists:  make(map[string]map[string]bool),
+		inFlight:    make(map[string]int),
 	}
 	p.accounts = accounts
 	return p
+}
+
+func TestGetNextExcludingSkipsBusyAccountWhenFreeAccountExists(t *testing.T) {
+	p := newTestPool(
+		config.Account{ID: "busy"},
+		config.Account{ID: "free"},
+	)
+	p.currentIndex = ^uint64(0)
+	p.BeginRequest("busy")
+
+	acc := p.GetNextExcluding(nil)
+	if acc == nil || acc.ID != "free" {
+		t.Fatalf("expected free account, got %#v", acc)
+	}
+}
+
+func TestGetNextExcludingReturnsBusyAccountWhenAllCandidatesBusy(t *testing.T) {
+	p := newTestPool(config.Account{ID: "busy"})
+	p.currentIndex = ^uint64(0)
+	p.BeginRequest("busy")
+
+	acc := p.GetNextExcluding(nil)
+	if acc == nil || acc.ID != "busy" {
+		t.Fatalf("expected busy fallback account, got %#v", acc)
+	}
+}
+
+func TestEndRequestDecrementsAndRemovesInFlightMarker(t *testing.T) {
+	p := newTestPool(config.Account{ID: "a"})
+	p.BeginRequest("a")
+	p.BeginRequest("a")
+
+	p.EndRequest("a")
+	if got := p.inFlightCountLocked("a"); got != 1 {
+		t.Fatalf("expected one in-flight request after first EndRequest, got %d", got)
+	}
+
+	p.EndRequest("a")
+	if got := p.inFlightCountLocked("a"); got != 0 {
+		t.Fatalf("expected in-flight marker to be removed, got %d", got)
+	}
+}
+
+func TestGetNextForModelExcludingSkipsBusyAccountWhenFreeAccountExists(t *testing.T) {
+	p := newTestPool(
+		config.Account{ID: "busy"},
+		config.Account{ID: "free"},
+	)
+	p.currentIndex = ^uint64(0)
+	p.SetModelList("busy", []string{"model"})
+	p.SetModelList("free", []string{"model"})
+	p.BeginRequest("busy")
+
+	acc := p.GetNextForModelExcluding("model", nil)
+	if acc == nil || acc.ID != "free" {
+		t.Fatalf("expected free model account, got %#v", acc)
+	}
 }
 
 func TestGetNextForModelExcludingSkipsExcludedAccounts(t *testing.T) {

@@ -165,7 +165,9 @@ func (h *Handler) handleResponsesNonStream(
 			},
 		}
 
+		h.pool.BeginRequest(account.ID)
 		err := CallKiroAPI(account, payload, callback)
+		h.pool.EndRequest(account.ID)
 		if err != nil {
 			lastErr = err
 			excluded[account.ID] = true
@@ -467,7 +469,9 @@ func (h *Handler) handleResponsesStream(
 			},
 		}
 
+		h.pool.BeginRequest(account.ID)
 		err := CallKiroAPI(account, payload, callback)
+		h.pool.EndRequest(account.ID)
 		if err != nil {
 			if !responseStarted {
 				lastErr = err

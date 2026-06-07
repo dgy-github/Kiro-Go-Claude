@@ -1199,7 +1199,9 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 			},
 		}
 
+		h.pool.BeginRequest(account.ID)
 		err := CallKiroAPI(account, payload, callback)
+		h.pool.EndRequest(account.ID)
 		if err != nil {
 			lastErr = err
 			excluded[account.ID] = true
@@ -1391,7 +1393,9 @@ func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, payload *KiroPayl
 			},
 		}
 
+		h.pool.BeginRequest(account.ID)
 		err := CallKiroAPI(account, payload, callback)
+		h.pool.EndRequest(account.ID)
 		if err != nil {
 			lastErr = err
 			excluded[account.ID] = true
@@ -1826,7 +1830,9 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, payload *KiroPayload
 			},
 		}
 
+		h.pool.BeginRequest(account.ID)
 		err := CallKiroAPI(account, payload, callback)
+		h.pool.EndRequest(account.ID)
 		if err != nil {
 			lastErr = err
 			excluded[account.ID] = true
@@ -1943,7 +1949,9 @@ func (h *Handler) handleOpenAINonStream(w http.ResponseWriter, payload *KiroPayl
 			},
 		}
 
+		h.pool.BeginRequest(account.ID)
 		err := CallKiroAPI(account, payload, callback)
+		h.pool.EndRequest(account.ID)
 		if err != nil {
 			lastErr = err
 			excluded[account.ID] = true
@@ -3063,7 +3071,9 @@ func (h *Handler) apiTestAccount(w http.ResponseWriter, r *http.Request, id stri
 		OnContextUsage: func(pct float64) {},
 	}
 
+	h.pool.BeginRequest(account.ID)
 	err := CallKiroAPI(account, kiroPayload, callback)
+	h.pool.EndRequest(account.ID)
 	if err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})

@@ -21,6 +21,7 @@ type AccountPool struct {
 	cooldowns     map[string]time.Time       // 账号冷却时间
 	errorCounts   map[string]int             // 连续错误计数
 	modelLists    map[string]map[string]bool // accountID → set of modelIDs (from ListAvailableModels)
+	inFlight      map[string]int             // accountID -> active upstream requests
 }
 
 var (
@@ -35,6 +36,7 @@ func GetPool() *AccountPool {
 			cooldowns:   make(map[string]time.Time),
 			errorCounts: make(map[string]int),
 			modelLists:  make(map[string]map[string]bool),
+			inFlight:    make(map[string]int),
 		}
 		pool.Reload()
 	})
@@ -83,6 +85,7 @@ func (p *AccountPool) GetNextExcluding(excluded map[string]bool) *config.Account
 	now := time.Now()
 	n := len(p.accounts)
 	seen := make(map[string]bool)
+	var busyFallback *config.Account
 
 	// 加权轮询查找可用账号
 	for i := 0; i < n; i++ {
@@ -115,18 +118,37 @@ func (p *AccountPool) GetNextExcluding(excluded map[string]bool) *config.Account
 			continue
 		}
 
+		if p.inFlightCountLocked(acc.ID) > 0 {
+			if busyFallback == nil {
+				busyFallback = acc
+			}
+			seen[acc.ID] = true
+			continue
+		}
+
 		return acc
 	}
 
-		// 无可用账号，返回冷却时间最短的（排除额度用尽的，除非允许超额）
+	if busyFallback != nil {
+		return busyFallback
+	}
+
+	// 无可用账号，返回冷却时间最短的（排除额度用尽的，除非允许超额）
 	var best *config.Account
 	var earliest time.Time
+	var busyBest *config.Account
 	for i := range p.accounts {
 		acc := &p.accounts[i]
 		if excluded != nil && excluded[acc.ID] {
 			continue
 		}
 		if isQuotaBlocked(*acc, allowOverUsage) {
+			continue
+		}
+		if p.inFlightCountLocked(acc.ID) > 0 {
+			if busyBest == nil {
+				busyBest = acc
+			}
 			continue
 		}
 		if cooldown, ok := p.cooldowns[acc.ID]; ok {
@@ -137,6 +159,9 @@ func (p *AccountPool) GetNextExcluding(excluded map[string]bool) *config.Account
 		} else {
 			return acc
 		}
+	}
+	if best == nil && busyBest != nil {
+		return busyBest
 	}
 	return best
 }
@@ -198,6 +223,7 @@ func (p *AccountPool) GetNextForModelExcluding(model string, excluded map[string
 	now := time.Now()
 	n := len(p.accounts)
 	seen := make(map[string]bool)
+	var busyFallback *config.Account
 
 	for i := 0; i < n; i++ {
 		idx := atomic.AddUint64(&p.currentIndex, 1) % uint64(n)
@@ -226,12 +252,24 @@ func (p *AccountPool) GetNextForModelExcluding(model string, excluded map[string
 			seen[acc.ID] = true
 			continue
 		}
+		if p.inFlightCountLocked(acc.ID) > 0 {
+			if busyFallback == nil {
+				busyFallback = acc
+			}
+			seen[acc.ID] = true
+			continue
+		}
 		return acc
+	}
+
+	if busyFallback != nil {
+		return busyFallback
 	}
 
 	// fallback：找冷却时间最短且支持该模型的账号
 	var best *config.Account
 	var earliest time.Time
+	var busyBest *config.Account
 	for i := range p.accounts {
 		acc := &p.accounts[i]
 		if excluded != nil && excluded[acc.ID] {
@@ -243,6 +281,12 @@ func (p *AccountPool) GetNextForModelExcluding(model string, excluded map[string
 		if isQuotaBlocked(*acc, allowOverUsage) {
 			continue
 		}
+		if p.inFlightCountLocked(acc.ID) > 0 {
+			if busyBest == nil {
+				busyBest = acc
+			}
+			continue
+		}
 		if cooldown, ok := p.cooldowns[acc.ID]; ok {
 			if best == nil || cooldown.Before(earliest) {
 				best = acc
@@ -252,7 +296,47 @@ func (p *AccountPool) GetNextForModelExcluding(model string, excluded map[string
 			return acc
 		}
 	}
+	if best == nil && busyBest != nil {
+		return busyBest
+	}
 	return best
+}
+
+// BeginRequest marks an account as actively serving an upstream request.
+func (p *AccountPool) BeginRequest(id string) {
+	if id == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.inFlight == nil {
+		p.inFlight = make(map[string]int)
+	}
+	p.inFlight[id]++
+}
+
+// EndRequest clears one active upstream request marker for an account.
+func (p *AccountPool) EndRequest(id string) {
+	if id == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.inFlight == nil {
+		return
+	}
+	if p.inFlight[id] <= 1 {
+		delete(p.inFlight, id)
+		return
+	}
+	p.inFlight[id]--
+}
+
+func (p *AccountPool) inFlightCountLocked(id string) int {
+	if p.inFlight == nil {
+		return 0
+	}
+	return p.inFlight[id]
 }
 
 // GetByID 根据 ID 获取账号

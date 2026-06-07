@@ -1,0 +1,61 @@
+name: Build Windows Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        shell: pwsh
+        run: go test ./...
+
+      - name: Build release zip
+        id: package
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          $package = "kiro-go-$version-windows-amd64"
+          $stage = Join-Path $env:RUNNER_TEMP $package
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          go build -trimpath -ldflags="-s -w" -o (Join-Path $stage "kiro-go.exe") .
+
+          Copy-Item -LiteralPath "start-kiro-go-claude.bat" -Destination $stage -Force
+          Copy-Item -LiteralPath "create-kiro-go-shortcut.ps1" -Destination $stage -Force
+          Copy-Item -LiteralPath "README.md" -Destination $stage -Force
+          Copy-Item -LiteralPath "README_CN.md" -Destination $stage -Force
+          Copy-Item -LiteralPath "LICENSE" -Destination $stage -Force
+
+          $docsOut = Join-Path $stage "docs"
+          New-Item -ItemType Directory -Force -Path $docsOut | Out-Null
+          Copy-Item -LiteralPath "docs\claude-desktop-fix-release.md" -Destination $docsOut -Force
+
+          $zip = "$package.zip"
+          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -Force
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.zip }}
+          generate_release_notes: true
+          body: |
+            Claude Desktop / Claude Code gateway stability build.
+
+            This Windows package does not include `data/config.json`, logs, account tokens, or local credential cache files.

@@ -446,11 +446,17 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 
 		streamStartedAt := time.Now()
 		logger.Infof("[KiroAPI] trace=%s endpoint=%s stream-start", traceID, ep.Name)
-		err = parseEventStream(resp.Body, callback)
+		streamCallback, emittedUpstreamContent := wrapCallbackWithEmissionTracking(callback)
+		err = parseEventStream(resp.Body, streamCallback)
 		resp.Body.Close()
 		cancelReq()
 		if err != nil {
 			logger.Warnf("[KiroAPI] trace=%s endpoint=%s stream-error after=%s err=%v", traceID, ep.Name, time.Since(streamStartedAt).Round(time.Millisecond), err)
+			lastErr = err
+			if !emittedUpstreamContent() {
+				logger.Warnf("[KiroAPI] trace=%s endpoint=%s stream-error before upstream content, trying next endpoint...", traceID, ep.Name)
+				continue
+			}
 		} else {
 			logger.Infof("[KiroAPI] trace=%s endpoint=%s stream-done after=%s", traceID, ep.Name, time.Since(streamStartedAt).Round(time.Millisecond))
 		}
@@ -461,6 +467,32 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 		return lastErr
 	}
 	return fmt.Errorf("all endpoints failed")
+}
+
+func wrapCallbackWithEmissionTracking(callback *KiroStreamCallback) (*KiroStreamCallback, func() bool) {
+	emitted := false
+	if callback == nil {
+		return &KiroStreamCallback{}, func() bool { return emitted }
+	}
+
+	wrapped := *callback
+	originalOnText := callback.OnText
+	wrapped.OnText = func(text string, isThinking bool) {
+		if strings.TrimSpace(text) != "" {
+			emitted = true
+		}
+		if originalOnText != nil {
+			originalOnText(text, isThinking)
+		}
+	}
+	originalOnToolUse := callback.OnToolUse
+	wrapped.OnToolUse = func(toolUse KiroToolUse) {
+		emitted = true
+		if originalOnToolUse != nil {
+			originalOnToolUse(toolUse)
+		}
+	}
+	return &wrapped, func() bool { return emitted }
 }
 
 // ==================== Event Stream Parsing ====================

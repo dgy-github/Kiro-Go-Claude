@@ -403,6 +403,42 @@ func TestLocalLocationLookupDoesNotTriggerForConceptQuestion(t *testing.T) {
 	}
 }
 
+func TestFileBackedWorkRequiresToolUseForNamedHTML(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeExecCommandTool()},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "interview-rag-day-plan.html 从这个入口重新整理下面试题，先读全文"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract == nil || !payload.ToolContract.RequiresTool {
+		t.Fatalf("expected file-backed work to require upstream tool use")
+	}
+	if payload.ToolContract.Source != "file-backed-work" {
+		t.Fatalf("expected file-backed-work source, got %q", payload.ToolContract.Source)
+	}
+	if payload.ToolContract.Mode != toolContractModeRequireUpstreamTool {
+		t.Fatalf("expected require-upstream-tool mode, got %q", payload.ToolContract.Mode)
+	}
+}
+
+func TestFileBackedWorkDoesNotTriggerForConceptQuestion(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeExecCommandTool()},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "index.html 是什么文件格式"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract != nil {
+		t.Fatalf("conceptual file question should not require tool use")
+	}
+}
+
 func TestSyntheticReadToolUsesFilePathSchemaKey(t *testing.T) {
 	tool := testClaudeReadTool()
 	tool.InputSchema = map[string]interface{}{

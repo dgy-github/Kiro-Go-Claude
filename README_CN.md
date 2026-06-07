@@ -21,6 +21,8 @@
 - 保留带图片的当前 `tool_result` 结构化内容，避免 Claude Desktop 丢上下文。
 - 增加账号池 in-flight 并发占用跟踪，让并发请求优先选择空闲账号，降低同一个账号被打爆后触发 429 重试风暴的概率。
 - 增加网关层 tool contract / 有界 repair loop，用于处理 `tool_choice` 和只读文件检查回合，减少需要真实工具调用时只回复“我来检查”的占位话术。
+- 将 tool contract 扩展到委托执行、本地文件/位置查询、点名文件处理任务，减少 Claude Code 说完“我先读/我检查”就停住的问题。
+- 当上游流在尚未输出任何文本或工具调用前断开时，自动尝试下一个上游端点，降低 `stream ID ... INTERNAL_ERROR` 直接暴露给客户端的概率。
 
 原始上游项目：[Quorinex/Kiro-Go](https://github.com/Quorinex/Kiro-Go)。
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"kiro-go/config"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
@@ -204,6 +205,75 @@ func TestInitKiroHttpClientKeepsShortRestTimeout(t *testing.T) {
 	}
 	if restClient.Timeout != 30*time.Second {
 		t.Fatalf("expected REST timeout to stay 30s, got %s", restClient.Timeout)
+	}
+}
+
+func TestCallKiroAPIRetriesNextEndpointAfterPreContentStreamError(t *testing.T) {
+	cfgFile := t.TempDir() + "/config.json"
+	if err := config.Init(cfgFile); err != nil {
+		t.Fatalf("config.Init: %v", err)
+	}
+	if err := config.UpdatePreferredEndpoint("kiro"); err != nil {
+		t.Fatalf("set endpoint: %v", err)
+	}
+	if err := config.UpdateEndpointFallback(true); err != nil {
+		t.Fatalf("enable endpoint fallback: %v", err)
+	}
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusOK)
+		if requests == 1 {
+			_, _ = w.Write([]byte{0, 0, 0})
+			return
+		}
+		_, _ = w.Write(awsEventStreamFrame(t, "assistantResponseEvent", map[string]interface{}{
+			"content": "recovered",
+		}))
+	}))
+	defer server.Close()
+
+	oldEndpoints := kiroEndpoints
+	kiroEndpoints = []kiroEndpoint{
+		{URL: server.URL, Origin: "AI_EDITOR", Name: "broken"},
+		{URL: server.URL, Origin: "AI_EDITOR", Name: "recovery"},
+		{URL: server.URL, Origin: "AI_EDITOR", Name: "unused"},
+	}
+	t.Cleanup(func() { kiroEndpoints = oldEndpoints })
+
+	oldClient := kiroHttpStore.Load()
+	kiroHttpStore.Store(&http.Client{Timeout: time.Second, Transport: &http.Transport{}})
+	t.Cleanup(func() { kiroHttpStore.Store(oldClient) })
+
+	payload := &KiroPayload{ProfileArn: "arn:aws:codewhisperer:profile/test"}
+	payload.ConversationState.CurrentMessage.UserInputMessage = KiroUserInputMessage{
+		Content: "hello",
+		ModelID: "claude-sonnet-4.5",
+		Origin:  "AI_EDITOR",
+	}
+
+	var got string
+	err := CallKiroAPI(&config.Account{
+		ID:          "test-account",
+		Email:       "test@example.com",
+		AccessToken: "token-test",
+		ProfileArn:  "arn:aws:codewhisperer:profile/test",
+	}, payload, &KiroStreamCallback{
+		OnText: func(text string, isThinking bool) {
+			if !isThinking {
+				got += text
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected retry to recover, got err=%v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("expected two endpoint attempts, got %d", requests)
+	}
+	if got != "recovered" {
+		t.Fatalf("expected recovered content, got %q", got)
 	}
 }
 

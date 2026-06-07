@@ -598,10 +598,12 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 	previousLower := strings.ToLower(previousAssistant)
 	delegatedExecution := isDelegatedExecutionRequest(currentLower)
 	localLocationLookup := isLocalLocationLookupRequest(currentLower)
+	fileBackedWork := isExplicitFileBackedWorkRequest(currentLower)
 	interesting := isContinuationAck(currentLower) ||
 		isReadonlyInspectionRequest(currentLower) ||
 		delegatedExecution ||
 		localLocationLookup ||
+		fileBackedWork ||
 		mentionsGitStatus(previousLower) ||
 		mentionsGitRepoAudit(previousLower)
 	if len(available) == 0 {
@@ -649,6 +651,16 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 		contract := &ToolContract{
 			RequiresTool:   true,
 			Source:         "local-location-lookup",
+			Mode:           toolContractModeRequireUpstreamTool,
+			AvailableTools: available,
+		}
+		logToolContractDecision("created", currentLower, previousLower, available, contract)
+		return contract
+	}
+	if source == "" && fileBackedWork {
+		contract := &ToolContract{
+			RequiresTool:   true,
+			Source:         "file-backed-work",
 			Mode:           toolContractModeRequireUpstreamTool,
 			AvailableTools: available,
 		}
@@ -1076,6 +1088,39 @@ func isLocalLocationLookupRequest(current string) bool {
 		"入口", "index.html", ".html", "页面", "面试题", "behavioral-answers",
 		"文件", "路由", "链接", "卡片", "组件", "按钮", "菜单", "导航",
 		"entry", "route", "page", "component", "link", "button", "card",
+	} {
+		if strings.Contains(current, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isExplicitFileBackedWorkRequest(current string) bool {
+	if current == "" || !mentionsExplicitLocalFile(current) {
+		return false
+	}
+	for _, marker := range []string{
+		"读全文", "先读", "读取", "读一下", "打开", "查看", "看下", "看一下", "扫描", "检查", "验证",
+		"整理", "重新整理", "重写", "改", "修改", "修", "修复", "补", "补充", "实现", "更新",
+		"生成", "替换", "删除", "抽取", "提取", "描述", "分析",
+		"read", "open", "inspect", "scan", "check", "verify", "rewrite", "edit", "modify",
+		"fix", "update", "implement", "refactor", "extract", "analyze",
+	} {
+		if strings.Contains(current, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func mentionsExplicitLocalFile(current string) bool {
+	if regexp.MustCompile(`(?i)[a-z]:\\`).MatchString(current) {
+		return true
+	}
+	for _, marker := range []string{
+		".html", ".md", ".json", ".go", ".py", ".ts", ".tsx", ".js", ".jsx", ".css",
+		".toml", ".yaml", ".yml", ".txt", ".docx", ".pdf",
 	} {
 		if strings.Contains(current, marker) {
 			return true

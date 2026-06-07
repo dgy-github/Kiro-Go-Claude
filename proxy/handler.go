@@ -1180,7 +1180,7 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 				} else {
 					rawContentBuilder.WriteString(text)
 				}
-				if shouldHoldToolContractText(payload) && len(toolUses) == 0 {
+				if !isThinking && shouldSuppressToolContractVisibleText(payload) {
 					return
 				}
 				processClaudeText(text, isThinking, false)
@@ -1474,6 +1474,7 @@ func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, payload *KiroPayl
 			h.sendClaudeError(w, 500, "tool_contract_violation", toolContractViolationMessage(payload.ToolContract, finalContent))
 			return
 		}
+		finalContent = suppressToolContractFinalText(payload, finalContent, toolUses)
 		rawThinkingContent := thinkingContent
 		if thinking && rawThinkingContent == "" && extractedReasoning != "" {
 			rawThinkingContent = extractedReasoning
@@ -1877,7 +1878,7 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, payload *KiroPayload
 				} else {
 					rawContentBuilder.WriteString(text)
 				}
-				if shouldHoldToolContractText(payload) && len(toolCalls) == 0 {
+				if !isThinking && shouldSuppressToolContractVisibleText(payload) {
 					return
 				}
 				processText(text, isThinking, false)
@@ -2099,6 +2100,7 @@ func (h *Handler) handleOpenAINonStream(w http.ResponseWriter, payload *KiroPayl
 			h.sendOpenAIError(w, 500, "tool_contract_violation", toolContractViolationMessage(payload.ToolContract, finalContent))
 			return
 		}
+		finalContent = suppressToolContractFinalText(payload, finalContent, toolUses)
 		if thinking && reasoningContent == "" && extractedReasoning != "" {
 			reasoningContent = extractedReasoning
 		} else if !thinking {

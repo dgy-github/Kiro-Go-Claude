@@ -328,6 +328,45 @@ func TestClaudeToolChoiceAnyBuildsToolContract(t *testing.T) {
 	}
 }
 
+func TestDelegatedExecutionBuildsUpstreamToolContract(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeExecCommandTool()},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "你自己建仓库，我在背面试题目"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract == nil || !payload.ToolContract.RequiresTool {
+		t.Fatalf("expected delegated execution to require upstream tool use")
+	}
+	if payload.ToolContract.Source != "delegated-execution" {
+		t.Fatalf("expected delegated-execution source, got %q", payload.ToolContract.Source)
+	}
+	if payload.ToolContract.Mode != toolContractModeRequireUpstreamTool {
+		t.Fatalf("expected require-upstream-tool mode, got %q", payload.ToolContract.Mode)
+	}
+	if payload.ToolContract.SyntheticToolUse != nil {
+		t.Fatalf("delegated execution must not synthesize risky tool calls")
+	}
+}
+
+func TestDelegatedExecutionDoesNotTriggerForQuestion(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeExecCommandTool()},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "这个跟 nanocodex 有什么关系"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract != nil {
+		t.Fatalf("question-only message should not require tool use")
+	}
+}
+
 func TestSyntheticReadToolUsesFilePathSchemaKey(t *testing.T) {
 	tool := testClaudeReadTool()
 	tool.InputSchema = map[string]interface{}{
@@ -391,11 +430,24 @@ func TestToolContractRepairIsBounded(t *testing.T) {
 	if !prepareToolContractRepair(payload, "Verifying file now.") {
 		t.Fatalf("expected first repair to be prepared")
 	}
+	content := payload.ConversationState.CurrentMessage.UserInputMessage.Content
+	if !strings.Contains(content, "check file") {
+		t.Fatalf("repair must preserve original user content, got %q", content)
+	}
+	if !strings.Contains(content, "[Kiro-Go backend tool repair]") {
+		t.Fatalf("expected backend repair instruction in retry payload, got %q", content)
+	}
+	if !strings.Contains(content, "Available tool names: read") {
+		t.Fatalf("expected repair to include available tools, got %q", content)
+	}
+	if !strings.Contains(content, "Verifying file now.") {
+		t.Fatalf("expected repair to include observed text-only response, got %q", content)
+	}
 	if prepareToolContractRepair(payload, "Still checking.") {
 		t.Fatalf("second repair must be blocked to avoid infinite loops")
 	}
-	if strings.Contains(payload.ConversationState.CurrentMessage.UserInputMessage.Content, "Kiro-Go repair") {
-		t.Fatalf("repair must not be injected into user content")
+	if strings.Count(payload.ConversationState.CurrentMessage.UserInputMessage.Content, "[Kiro-Go backend tool repair]") != 1 {
+		t.Fatalf("repair instruction must be injected at most once")
 	}
 	msg := toolContractViolationMessage(payload.ToolContract, "Still checking.")
 	if !strings.Contains(msg, "tool_contract") && !strings.Contains(msg, "tool") {
@@ -441,6 +493,27 @@ func TestToolRunnerActionSeparatesSyntheticFromUpstreamRepair(t *testing.T) {
 	}
 	if !shouldRepairToolContract(upstream, "I'll read it now.", nil) {
 		t.Fatalf("upstream-required contract should repair text-only responses")
+	}
+}
+
+func TestToolContractSuppressesVisibleTextAfterToolUse(t *testing.T) {
+	payload := &KiroPayload{
+		ToolContract: &ToolContract{
+			RequiresTool:   true,
+			Mode:           toolContractModeRequireUpstreamTool,
+			AvailableTools: []string{"Bash"},
+		},
+	}
+	toolUses := []KiroToolUse{{ToolUseID: "t1", Name: "Bash"}}
+
+	if got := suppressToolContractFinalText(payload, "internal repair leaked", toolUses); got != "" {
+		t.Fatalf("expected tool-contract text to be suppressed after tool_use, got %q", got)
+	}
+	if got := suppressToolContractFinalText(payload, "still need a tool", nil); got != "still need a tool" {
+		t.Fatalf("text must stay available before tool_use for repair detection, got %q", got)
+	}
+	if got := suppressToolContractFinalText(&KiroPayload{}, "normal answer", toolUses); got != "normal answer" {
+		t.Fatalf("normal non-contract text must not be suppressed, got %q", got)
 	}
 }
 

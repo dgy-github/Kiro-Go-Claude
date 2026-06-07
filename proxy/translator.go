@@ -596,8 +596,10 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 	available := toolNamesFromWrappers(tools)
 	currentLower := strings.ToLower(strings.TrimSpace(currentUser))
 	previousLower := strings.ToLower(previousAssistant)
+	delegatedExecution := isDelegatedExecutionRequest(currentLower)
 	interesting := isContinuationAck(currentLower) ||
 		isReadonlyInspectionRequest(currentLower) ||
+		delegatedExecution ||
 		mentionsGitStatus(previousLower) ||
 		mentionsGitRepoAudit(previousLower)
 	if len(available) == 0 {
@@ -630,6 +632,16 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 		source = "readonly-inspection"
 	} else if shouldForceToolUseAfterContinuation(currentUser, previousAssistant) {
 		source = "authorized-continuation"
+	}
+	if source == "" && delegatedExecution {
+		contract := &ToolContract{
+			RequiresTool:   true,
+			Source:         "delegated-execution",
+			Mode:           toolContractModeRequireUpstreamTool,
+			AvailableTools: available,
+		}
+		logToolContractDecision("created", currentLower, previousLower, available, contract)
+		return contract
 	}
 	if source == "" {
 		if interesting {
@@ -980,6 +992,48 @@ func isReadonlyInspectionRequest(current string) bool {
 		"是否", "有没有", "还在", "存在", "删除", "删掉", "删了",
 		".py", ".go", ".js", ".ts", ".json", ".md", ".log", ".txt",
 		"_", "/", "\\", "file", "path", "exists", "deleted", "present",
+	} {
+		if strings.Contains(current, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDelegatedExecutionRequest(current string) bool {
+	if current == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"建仓库", "创建仓库", "建远程仓库", "创建远程仓库",
+		"提交到github", "提交到 github", "推送到github", "推送到 github",
+		"上传到github", "上传到 github", "发布release", "发布 release",
+	} {
+		if strings.Contains(current, marker) {
+			return true
+		}
+	}
+
+	hasDelegation := false
+	for _, marker := range []string{
+		"你自己", "你来", "你直接", "直接", "继续处理", "继续做", "继续改", "继续修",
+		"接着处理", "接着做", "帮我", "替我", "不用问", "不要问", "我在背",
+		"you do", "do it", "continue fixing", "continue working", "go ahead",
+	} {
+		if strings.Contains(current, marker) {
+			hasDelegation = true
+			break
+		}
+	}
+	if !hasDelegation {
+		return false
+	}
+	for _, marker := range []string{
+		"处理", "做", "实现", "改", "修", "删", "删除", "创建", "建立", "建",
+		"提交", "推送", "上传", "发布", "release", "部署", "安装", "重启",
+		"拉取", "跑", "执行", "调用", "调 api", "写", "生成",
+		"create", "edit", "patch", "fix", "delete", "commit", "push", "release",
+		"deploy", "install", "restart", "run", "execute", "call api", "write",
 	} {
 		if strings.Contains(current, marker) {
 			return true

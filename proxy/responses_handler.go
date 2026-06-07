@@ -206,6 +206,7 @@ func (h *Handler) handleResponsesNonStream(
 			h.sendOpenAIError(w, 500, "tool_contract_violation", toolContractViolationMessage(payload.ToolContract, finalContent))
 			return
 		}
+		finalContent = suppressToolContractFinalText(payload, finalContent, toolUses)
 
 		if realInputTokens > 0 {
 			inputTokens = realInputTokens
@@ -454,7 +455,7 @@ func (h *Handler) handleResponsesStream(
 					return
 				}
 				fullText.WriteString(text)
-				if shouldHoldToolContractText(payload) && len(toolUses) == 0 {
+				if shouldSuppressToolContractVisibleText(payload) {
 					return
 				}
 				ensureMessageStarted()
@@ -590,6 +591,7 @@ func (h *Handler) handleResponsesStream(
 			})
 			return
 		}
+		finalContent = suppressToolContractFinalText(payload, finalContent, toolUses)
 
 		if messageStarted {
 			send("response.content_part.done", map[string]interface{}{

@@ -59,6 +59,17 @@ func shouldHoldToolContractText(payload *KiroPayload) bool {
 	return decideToolRunnerAction(payload).HoldText
 }
 
+func shouldSuppressToolContractVisibleText(payload *KiroPayload) bool {
+	return decideToolRunnerAction(payload).EnforceTool
+}
+
+func suppressToolContractFinalText(payload *KiroPayload, content string, toolUses []KiroToolUse) string {
+	if shouldSuppressToolContractVisibleText(payload) && len(toolUses) > 0 {
+		return ""
+	}
+	return content
+}
+
 func syntheticToolUse(payload *KiroPayload) (KiroToolUse, bool) {
 	tu := decideToolRunnerAction(payload).DirectToolUse
 	if tu == nil {
@@ -97,7 +108,49 @@ func prepareToolContractRepair(payload *KiroPayload, observedText string) bool {
 		return false
 	}
 	contract.RepairAttempts++
+	appendToolContractRepairInstruction(payload, observedText)
 	return true
+}
+
+func appendToolContractRepairInstruction(payload *KiroPayload, observedText string) {
+	if payload == nil || payload.ToolContract == nil {
+		return
+	}
+	msg := &payload.ConversationState.CurrentMessage.UserInputMessage
+	if strings.Contains(msg.Content, "[Kiro-Go backend tool repair]") {
+		return
+	}
+	contract := payload.ToolContract
+	tools := strings.Join(contract.AvailableTools, ", ")
+	if tools == "" {
+		tools = "(tools were advertised, but names were unavailable)"
+	}
+	observedText = strings.TrimSpace(observedText)
+	if len([]rune(observedText)) > 300 {
+		runes := []rune(observedText)
+		observedText = string(runes[:300]) + "..."
+	}
+
+	var b strings.Builder
+	b.WriteString(strings.TrimRight(msg.Content, "\r\n "))
+	b.WriteString("\n\n[Kiro-Go backend tool repair]\n")
+	b.WriteString("The previous upstream response was plain text, but this turn requires a real structured tool_use/tool call. ")
+	b.WriteString("Do not describe the action in prose. Emit exactly the appropriate tool call now.\n")
+	b.WriteString("Available tool names: ")
+	b.WriteString(tools)
+	b.WriteString("\n")
+	if contract.ToolName != "" {
+		b.WriteString("Required tool name: ")
+		b.WriteString(contract.ToolName)
+		b.WriteString("\n")
+	}
+	if observedText != "" {
+		b.WriteString("Previous text-only response to repair: ")
+		b.WriteString(observedText)
+		b.WriteString("\n")
+	}
+	b.WriteString("If the work involves shell, git, curl, or an API call, use the shell/bash/exec command tool exposed in this request. Do not print secrets.")
+	msg.Content = b.String()
 }
 
 func toolContractViolationMessage(contract *ToolContract, observedText string) string {

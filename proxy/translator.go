@@ -597,9 +597,11 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 	currentLower := strings.ToLower(strings.TrimSpace(currentUser))
 	previousLower := strings.ToLower(previousAssistant)
 	delegatedExecution := isDelegatedExecutionRequest(currentLower)
+	localLocationLookup := isLocalLocationLookupRequest(currentLower)
 	interesting := isContinuationAck(currentLower) ||
 		isReadonlyInspectionRequest(currentLower) ||
 		delegatedExecution ||
+		localLocationLookup ||
 		mentionsGitStatus(previousLower) ||
 		mentionsGitRepoAudit(previousLower)
 	if len(available) == 0 {
@@ -637,6 +639,16 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 		contract := &ToolContract{
 			RequiresTool:   true,
 			Source:         "delegated-execution",
+			Mode:           toolContractModeRequireUpstreamTool,
+			AvailableTools: available,
+		}
+		logToolContractDecision("created", currentLower, previousLower, available, contract)
+		return contract
+	}
+	if source == "" && localLocationLookup {
+		contract := &ToolContract{
+			RequiresTool:   true,
+			Source:         "local-location-lookup",
 			Mode:           toolContractModeRequireUpstreamTool,
 			AvailableTools: available,
 		}
@@ -1034,6 +1046,36 @@ func isDelegatedExecutionRequest(current string) bool {
 		"拉取", "跑", "执行", "调用", "调 api", "写", "生成",
 		"create", "edit", "patch", "fix", "delete", "commit", "push", "release",
 		"deploy", "install", "restart", "run", "execute", "call api", "write",
+	} {
+		if strings.Contains(current, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isLocalLocationLookupRequest(current string) bool {
+	if current == "" {
+		return false
+	}
+	hasLocator := false
+	for _, marker := range []string{
+		"在哪里", "在哪", "哪儿", "哪裡", "位置", "路径", "哪一行", "第几行",
+		"还记得", "记得吗", "知道在哪里", "知道在哪", "找一下", "找下",
+		"where", "which file", "what file", "line number", "location", "path",
+	} {
+		if strings.Contains(current, marker) {
+			hasLocator = true
+			break
+		}
+	}
+	if !hasLocator {
+		return false
+	}
+	for _, marker := range []string{
+		"入口", "index.html", ".html", "页面", "面试题", "behavioral-answers",
+		"文件", "路由", "链接", "卡片", "组件", "按钮", "菜单", "导航",
+		"entry", "route", "page", "component", "link", "button", "card",
 	} {
 		if strings.Contains(current, marker) {
 			return true

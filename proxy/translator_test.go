@@ -367,6 +367,42 @@ func TestDelegatedExecutionDoesNotTriggerForQuestion(t *testing.T) {
 	}
 }
 
+func TestLocalLocationLookupRequiresToolUse(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeExecCommandTool()},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "面试题入口你知道在哪里"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract == nil || !payload.ToolContract.RequiresTool {
+		t.Fatalf("expected local location lookup to require upstream tool use")
+	}
+	if payload.ToolContract.Source != "local-location-lookup" {
+		t.Fatalf("expected local-location-lookup source, got %q", payload.ToolContract.Source)
+	}
+	if payload.ToolContract.Mode != toolContractModeRequireUpstreamTool {
+		t.Fatalf("expected require-upstream-tool mode, got %q", payload.ToolContract.Mode)
+	}
+}
+
+func TestLocalLocationLookupDoesNotTriggerForConceptQuestion(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeExecCommandTool()},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "RAG 的入口层是什么意思"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract != nil {
+		t.Fatalf("concept question should not require tool use")
+	}
+}
+
 func TestSyntheticReadToolUsesFilePathSchemaKey(t *testing.T) {
 	tool := testClaudeReadTool()
 	tool.InputSchema = map[string]interface{}{

@@ -48,6 +48,9 @@ docker-compose up -d
 
 ### Docker Run
 
+The image below is the upstream image and may not include this fork's Claude stability fixes.
+For this fork, prefer Docker Compose or build from source unless you publish your own image.
+
 ```bash
 docker run -d \
   --name kiro-go \

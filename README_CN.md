@@ -48,6 +48,9 @@ docker-compose up -d
 
 ### Docker 运行
 
+下面的镜像是上游镜像，可能不包含本 fork 的 Claude 稳定性修复。
+如果要使用本 fork 的修复版，建议优先使用 Docker Compose 或源码编译，除非你已经发布了自己的镜像。
+
 ```bash
 docker run -d \
   --name kiro-go \

@@ -180,9 +180,14 @@ func (h *Handler) handleResponsesNonStream(
 		if !thinking {
 			reasoningContent = ""
 		}
-		if shouldRepairToolContract(payload, finalContent, toolUses) && prepareToolContractRepair(payload, finalContent) {
-			attempt--
-			continue
+		if shouldRepairToolContract(payload, finalContent, toolUses) {
+			if prepareToolContractRepair(payload, finalContent) {
+				attempt--
+				continue
+			}
+			h.recordFailure()
+			h.sendOpenAIError(w, 500, "tool_contract_violation", toolContractViolationMessage(payload.ToolContract, finalContent))
+			return
 		}
 
 		if realInputTokens > 0 {
@@ -507,9 +512,24 @@ func (h *Handler) handleResponsesStream(
 		if !thinking {
 			reasoning = ""
 		}
-		if shouldRepairToolContract(payload, finalContent, toolUses) && prepareToolContractRepair(payload, finalContent) {
-			attempt--
-			continue
+		if shouldRepairToolContract(payload, finalContent, toolUses) {
+			if prepareToolContractRepair(payload, finalContent) {
+				attempt--
+				continue
+			}
+			h.recordFailure()
+			send("response.failed", map[string]interface{}{
+				"type": "response.failed",
+				"response": map[string]interface{}{
+					"id":     respID,
+					"status": "failed",
+					"error": map[string]string{
+						"type":    "tool_contract_violation",
+						"message": toolContractViolationMessage(payload.ToolContract, finalContent),
+					},
+				},
+			})
+			return
 		}
 
 		if messageStarted {

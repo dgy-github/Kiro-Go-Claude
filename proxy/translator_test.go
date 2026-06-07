@@ -127,8 +127,8 @@ func TestClaudeContinuationAfterReadPlanGetsToolUseNudge(t *testing.T) {
 	if payload.ToolContract == nil || !payload.ToolContract.RequiresTool {
 		t.Fatalf("expected tool contract for continuation after read plan")
 	}
-	if !strings.Contains(content, "Kiro-Go tool contract") {
-		t.Fatalf("expected tool contract instruction for continuation after read plan, got %q", content)
+	if strings.Contains(content, "Kiro-Go tool contract") {
+		t.Fatalf("tool contract must not be injected into user content, got %q", content)
 	}
 	if !strings.Contains(content, "继续") {
 		t.Fatalf("expected original continuation content preserved, got %q", content)
@@ -169,8 +169,8 @@ func TestClaudeReadonlyFileCheckGetsToolUseNudge(t *testing.T) {
 	if payload.ToolContract.Source != "readonly-inspection" {
 		t.Fatalf("expected readonly-inspection source, got %q", payload.ToolContract.Source)
 	}
-	if !strings.Contains(content, "Kiro-Go tool contract") {
-		t.Fatalf("expected tool contract instruction for readonly file check, got %q", content)
+	if strings.Contains(content, "Kiro-Go tool contract") {
+		t.Fatalf("tool contract must not be injected into user content, got %q", content)
 	}
 	if !strings.Contains(content, "_probe_sched.py") {
 		t.Fatalf("expected original file check request preserved, got %q", content)
@@ -208,8 +208,8 @@ func TestClaudeWriteHandoffAuthorizationGetsToolUseNudge(t *testing.T) {
 	if payload.ToolContract == nil || !payload.ToolContract.RequiresTool {
 		t.Fatalf("expected tool contract after HANDOFF write authorization")
 	}
-	if !strings.Contains(content, "Kiro-Go tool contract") {
-		t.Fatalf("expected tool contract instruction after HANDOFF write authorization, got %q", content)
+	if strings.Contains(content, "Kiro-Go tool contract") {
+		t.Fatalf("tool contract must not be injected into user content, got %q", content)
 	}
 	if !strings.Contains(content, "写吧") {
 		t.Fatalf("expected original authorization content preserved, got %q", content)
@@ -253,8 +253,12 @@ func TestToolContractRepairIsBounded(t *testing.T) {
 	if prepareToolContractRepair(payload, "Still checking.") {
 		t.Fatalf("second repair must be blocked to avoid infinite loops")
 	}
-	if !strings.Contains(payload.ConversationState.CurrentMessage.UserInputMessage.Content, "Kiro-Go repair") {
-		t.Fatalf("expected repair instruction appended")
+	if strings.Contains(payload.ConversationState.CurrentMessage.UserInputMessage.Content, "Kiro-Go repair") {
+		t.Fatalf("repair must not be injected into user content")
+	}
+	msg := toolContractViolationMessage(payload.ToolContract, "Still checking.")
+	if !strings.Contains(msg, "tool_contract") && !strings.Contains(msg, "tool") {
+		t.Fatalf("expected explicit violation message, got %q", msg)
 	}
 }
 

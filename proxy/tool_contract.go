@@ -37,13 +37,10 @@ func prepareToolContractRepair(payload *KiroPayload, observedText string) bool {
 		return false
 	}
 	contract.RepairAttempts++
-
-	msg := &payload.ConversationState.CurrentMessage.UserInputMessage
-	msg.Content = strings.TrimSpace(msg.Content) + "\n\n" + buildToolRepairInstruction(contract, observedText)
 	return true
 }
 
-func buildToolRepairInstruction(contract *ToolContract, observedText string) string {
+func toolContractViolationMessage(contract *ToolContract, observedText string) string {
 	observedText = strings.TrimSpace(observedText)
 	if len([]rune(observedText)) > 500 {
 		runes := []rune(observedText)
@@ -51,18 +48,20 @@ func buildToolRepairInstruction(contract *ToolContract, observedText string) str
 	}
 
 	var b strings.Builder
-	b.WriteString("[Kiro-Go repair: The previous assistant attempt violated the tool contract by returning text without a structured tool_use.")
+	b.WriteString("Upstream returned text without a structured tool_use even though this turn requires tool use")
+	if contract != nil && contract.Source != "" {
+		b.WriteString(" (source: ")
+		b.WriteString(contract.Source)
+		b.WriteString(")")
+	}
+	if contract != nil && contract.ToolName != "" {
+		b.WriteString("; required tool: ")
+		b.WriteString(contract.ToolName)
+	}
 	if observedText != "" {
-		b.WriteString(" Previous text was: ")
+		b.WriteString(". Last text-only response: ")
 		b.WriteString(observedText)
 	}
-	b.WriteString(" Retry now and emit a real structured tool_use")
-	if contract.ToolName != "" {
-		b.WriteString(" for `")
-		b.WriteString(contract.ToolName)
-		b.WriteString("`")
-	}
-	b.WriteString(" before any final answer.]")
 	return b.String()
 }
 

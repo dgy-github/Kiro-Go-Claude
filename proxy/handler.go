@@ -1232,9 +1232,17 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 			inputTokens = estimatedInputTokens
 		}
 		outputContent, extractedReasoning := extractThinkingFromContent(rawContentBuilder.String())
-		if shouldRepairToolContract(payload, outputContent, toolUses) && prepareToolContractRepair(payload, outputContent) {
-			attempt--
-			continue
+		if shouldRepairToolContract(payload, outputContent, toolUses) {
+			if prepareToolContractRepair(payload, outputContent) {
+				attempt--
+				continue
+			}
+			h.recordFailure()
+			h.sendSSE(w, flusher, "error", map[string]interface{}{
+				"type":  "error",
+				"error": map[string]string{"type": "tool_contract_violation", "message": toolContractViolationMessage(payload.ToolContract, outputContent)},
+			})
+			return
 		}
 		thinkingOutput := rawThinkingBuilder.String()
 		if thinking && thinkingOutput == "" && extractedReasoning != "" {
@@ -1412,9 +1420,14 @@ func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, payload *KiroPayl
 
 		thinkingFormat := thinkingOpts.Format
 		finalContent, extractedReasoning := extractThinkingFromContent(content)
-		if shouldRepairToolContract(payload, finalContent, toolUses) && prepareToolContractRepair(payload, finalContent) {
-			attempt--
-			continue
+		if shouldRepairToolContract(payload, finalContent, toolUses) {
+			if prepareToolContractRepair(payload, finalContent) {
+				attempt--
+				continue
+			}
+			h.recordFailure()
+			h.sendClaudeError(w, 500, "tool_contract_violation", toolContractViolationMessage(payload.ToolContract, finalContent))
+			return
 		}
 		rawThinkingContent := thinkingContent
 		if thinking && rawThinkingContent == "" && extractedReasoning != "" {
@@ -1869,9 +1882,23 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, payload *KiroPayload
 			inputTokens = estimatedInputTokens
 		}
 		outputContent, extractedReasoning := extractThinkingFromContent(rawContentBuilder.String())
-		if shouldRepairToolContract(payload, outputContent, toolUsesFromToolCalls(toolCalls)) && prepareToolContractRepair(payload, outputContent) {
-			attempt--
-			continue
+		if shouldRepairToolContract(payload, outputContent, toolUsesFromToolCalls(toolCalls)) {
+			if prepareToolContractRepair(payload, outputContent) {
+				attempt--
+				continue
+			}
+			h.recordFailure()
+			errChunk := map[string]interface{}{
+				"error": map[string]string{
+					"type":    "tool_contract_violation",
+					"message": toolContractViolationMessage(payload.ToolContract, outputContent),
+				},
+			}
+			data, _ := json.Marshal(errChunk)
+			fmt.Fprintf(w, "data: %s\n\n", string(data))
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			flusher.Flush()
+			return
 		}
 		reasoningOutput := rawReasoningBuilder.String()
 		if thinking && reasoningOutput == "" && extractedReasoning != "" {
@@ -1978,9 +2005,14 @@ func (h *Handler) handleOpenAINonStream(w http.ResponseWriter, payload *KiroPayl
 		}
 
 		finalContent, extractedReasoning := extractThinkingFromContent(content)
-		if shouldRepairToolContract(payload, finalContent, toolUses) && prepareToolContractRepair(payload, finalContent) {
-			attempt--
-			continue
+		if shouldRepairToolContract(payload, finalContent, toolUses) {
+			if prepareToolContractRepair(payload, finalContent) {
+				attempt--
+				continue
+			}
+			h.recordFailure()
+			h.sendOpenAIError(w, 500, "tool_contract_violation", toolContractViolationMessage(payload.ToolContract, finalContent))
+			return
 		}
 		if thinking && reasoningContent == "" && extractedReasoning != "" {
 			reasoningContent = extractedReasoning

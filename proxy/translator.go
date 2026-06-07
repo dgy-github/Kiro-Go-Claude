@@ -306,9 +306,6 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 	// 转换工具
 	kiroTools, toolNameMap := convertClaudeTools(req.Tools)
 	toolContract := buildToolContract(req.ToolChoice, currentContent, previousAssistantContent, kiroTools)
-	if toolContract != nil && toolContract.RequiresTool {
-		finalContent = appendToolContractInstruction(finalContent, toolContract)
-	}
 
 	// 构建 payload
 	payload := &KiroPayload{}
@@ -703,38 +700,6 @@ func toolNamesFromWrappers(tools []KiroToolWrapper) []string {
 		}
 	}
 	return names
-}
-
-func appendToolContractInstruction(content string, contract *ToolContract) string {
-	content = strings.TrimSpace(content)
-	if content == "" || content == minimalFallbackUserContent {
-		content = "Continue."
-	}
-	note := buildToolContractInstruction(contract)
-	if strings.Contains(content, note) {
-		return content
-	}
-	return content + "\n\n" + note
-}
-
-func buildToolContractInstruction(contract *ToolContract) string {
-	if contract == nil || !contract.RequiresTool {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("[Kiro-Go tool contract: This turn requires a real structured tool_use before any final answer.")
-	if contract.ToolName != "" {
-		b.WriteString(" Use tool `")
-		b.WriteString(contract.ToolName)
-		b.WriteString("`.")
-	}
-	if contract.Source != "" {
-		b.WriteString(" Source: ")
-		b.WriteString(contract.Source)
-		b.WriteString(".")
-	}
-	b.WriteString(" Do not answer with placeholder text such as \"I will check\", \"Verifying\", or \"Checking\". If the requested action is impossible with the available tools, say so explicitly after attempting the relevant tool.]")
-	return b.String()
 }
 
 func isReadonlyInspectionRequest(current string) bool {
@@ -1565,9 +1530,6 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 	// 转换工具
 	kiroTools := convertOpenAITools(req.Tools)
 	toolContract := buildToolContract(req.ToolChoice, finalContent, previousAssistantContent, kiroTools)
-	if toolContract != nil && toolContract.RequiresTool {
-		finalContent = appendToolContractInstruction(finalContent, toolContract)
-	}
 
 	// 构建 payload
 	payload := &KiroPayload{}

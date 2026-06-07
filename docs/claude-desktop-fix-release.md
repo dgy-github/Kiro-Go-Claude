@@ -13,7 +13,7 @@ Upstream project:
 - Prevents assistant turns from replaying fake tool transcripts such as `Tool results:` / `[Read]` instead of issuing real tool calls.
 - Adds a continuation guard: when the user says `继续` / `可以` / `确定` after the assistant already planned a readonly inspection, Kiro-Go nudges the model to call real tools instead of restating the plan.
 - Treats readonly diagnosis as pre-authorized in the backend prompt, so file reads, log reads, grep, and JSONL inspection should not require another confirmation.
-- Adds a formal tool contract / repair loop. Claude, OpenAI Chat Completions, and Responses `tool_choice` requests are tracked inside the gateway; if upstream returns text-only placeholders when a tool is required, Kiro-Go runs one bounded repair retry instead of immediately passing the placeholder back to Claude Desktop.
+- Adds a formal tool contract / repair loop. Claude, OpenAI Chat Completions, and Responses `tool_choice` requests are tracked as internal gateway state, not injected into the user prompt; if upstream returns text-only placeholders when a tool is required, Kiro-Go runs one bounded repair retry and then returns `tool_contract_violation` instead of passing the placeholder back to Claude Desktop.
 - Keeps readonly file-check detection as a temporary fallback source for the tool contract when the client does not send `tool_choice`.
 - Raises Kiro upstream streaming request timeout from 90 seconds to 5 minutes for large-context Claude Code sessions.
 - Preserves image-bearing current `tool_result` payloads while keeping orphan text tool results flattened for upstream compatibility.

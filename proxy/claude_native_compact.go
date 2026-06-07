@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"kiro-go/config"
@@ -14,6 +16,8 @@ import (
 )
 
 const claudeNativeCompactTailBytes = 512 * 1024
+const claudeTranscriptCwdScanLines = 200
+const claudeTranscriptCwdMaxLineBytes = 2 * 1024 * 1024
 
 type claudeNativeCompactCoordination struct {
 	Enabled       bool
@@ -116,10 +120,7 @@ func runClaudeNativeCompact(cfg config.ClaudeNativeCompactConfig) error {
 		return err
 	}
 	sessionID := strings.TrimSuffix(filepath.Base(sessionFile), filepath.Ext(sessionFile))
-	projectDir := cfg.ProjectDir
-	if strings.TrimSpace(projectDir) == "" {
-		projectDir = inferClaudeProjectDir(sessionFile)
-	}
+	projectDir := claudeCompactProjectDirForSession(cfg, sessionFile)
 	if projectDir == "" {
 		projectDir = "."
 	}
@@ -167,6 +168,18 @@ func runClaudeNativeCompact(cfg config.ClaudeNativeCompactConfig) error {
 
 	logger.Infof("[ClaudeCompact] verified session=%s backup=%s", sessionID, backup)
 	return nil
+}
+
+func claudeCompactProjectDirForSession(cfg config.ClaudeNativeCompactConfig, sessionFile string) string {
+	inferred := inferClaudeProjectDir(sessionFile)
+	configured := strings.TrimSpace(cfg.ProjectDir)
+	if strings.TrimSpace(cfg.SessionID) == "" && inferred != "" {
+		return inferred
+	}
+	if configured != "" {
+		return configured
+	}
+	return inferred
 }
 
 func resolveClaudeSessionFile(cfg config.ClaudeNativeCompactConfig) (string, error) {
@@ -228,15 +241,63 @@ func resolveClaudeSessionFile(cfg config.ClaudeNativeCompactConfig) (string, err
 }
 
 func inferClaudeProjectDir(sessionFile string) string {
+	if cwd := readClaudeTranscriptCwd(sessionFile); cwd != "" {
+		return cwd
+	}
+
 	dir := filepath.Dir(sessionFile)
 	base := filepath.Base(dir)
 	if strings.HasPrefix(base, "D--") && runtime.GOOS == "windows" {
-		return "D:\\" + strings.ReplaceAll(strings.TrimPrefix(base, "D--"), "-", "\\")
+		return existingDirOrEmpty("D:\\" + strings.ReplaceAll(strings.TrimPrefix(base, "D--"), "-", "\\"))
 	}
 	if strings.HasPrefix(base, "C--") && runtime.GOOS == "windows" {
-		return "C:\\" + strings.ReplaceAll(strings.TrimPrefix(base, "C--"), "-", "\\")
+		return existingDirOrEmpty("C:\\" + strings.ReplaceAll(strings.TrimPrefix(base, "C--"), "-", "\\"))
 	}
 	return ""
+}
+
+func readClaudeTranscriptCwd(sessionFile string) string {
+	f, err := os.Open(sessionFile)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), claudeTranscriptCwdMaxLineBytes)
+	for lines := 0; scanner.Scan() && lines < claudeTranscriptCwdScanLines; lines++ {
+		if cwd := extractClaudeTranscriptCwdLine(scanner.Bytes()); cwd != "" {
+			return cwd
+		}
+	}
+	return ""
+}
+
+func extractClaudeTranscriptCwdLine(line []byte) string {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(line, &obj); err != nil {
+		return ""
+	}
+	raw, ok := obj["cwd"]
+	if !ok {
+		return ""
+	}
+	var cwd string
+	if err := json.Unmarshal(raw, &cwd); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cwd)
+}
+
+func existingDirOrEmpty(path string) string {
+	if path == "" {
+		return ""
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return ""
+	}
+	return path
 }
 
 func transcriptAppendHasCompactSuccess(path string, offset int64) (bool, string) {

@@ -112,7 +112,7 @@ gitStatus: dirty`
 	}
 }
 
-func TestApplyPromptFiltersConfiguredProjectRootOverridesPromptRoot(t *testing.T) {
+func TestApplyPromptFiltersConfiguredCompactProjectRootDoesNotOverridePromptRoot(t *testing.T) {
 	initPromptFilterTestConfig(t, false, true, true)
 	t.Setenv("KIRO_GO_CLAUDE_NATIVE_COMPACT_PROJECT_DIR", `D:\agent_prac\nanocodex`)
 
@@ -126,12 +126,11 @@ Do the useful thing.`
 
 	got := applyPromptFilters(in)
 
-	if !strings.Contains(got, `Current project root: D:\agent_prac\nanocodex`) {
-		t.Fatalf("expected configured project root to be injected, got:\n%s", got)
+	if !strings.Contains(got, `Current project root: D:\agent_prac`) {
+		t.Fatalf("expected prompt project root to survive, got:\n%s", got)
 	}
-	if strings.Contains(got, `Current project root: D:\agent_prac`+"\n") ||
-		strings.Contains(got, `Project root: D:\agent_prac`) {
-		t.Fatalf("expected prompt root to be replaced by configured root, got:\n%s", got)
+	if strings.Contains(got, `Current project root: D:\agent_prac\nanocodex`) {
+		t.Fatalf("compact project dir must not override live prompt root, got:\n%s", got)
 	}
 }
 

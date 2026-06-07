@@ -1,6 +1,9 @@
 package proxy
 
-import "testing"
+import (
+	"kiro-go/config"
+	"testing"
+)
 
 func TestAccountFailureClassifiers(t *testing.T) {
 	tests := []struct {
@@ -19,5 +22,17 @@ func TestAccountFailureClassifiers(t *testing.T) {
 		if !tc.fn(tc.msg) {
 			t.Fatalf("%s classifier did not match %q", tc.name, tc.msg)
 		}
+	}
+}
+
+func TestAccountUsageAtLimitOnlyWhenSubscriptionUsageExhausted(t *testing.T) {
+	if isAccountUsageAtLimit(&config.Account{UsageCurrent: 822, UsageLimit: 10000}) {
+		t.Fatalf("expected low-usage account to avoid hard quota cooldown")
+	}
+	if !isAccountUsageAtLimit(&config.Account{UsageCurrent: 10000, UsageLimit: 10000}) {
+		t.Fatalf("expected exhausted account to be hard quota-limited")
+	}
+	if isAccountUsageAtLimit(&config.Account{}) {
+		t.Fatalf("expected missing usage limit to avoid hard quota cooldown")
 	}
 }

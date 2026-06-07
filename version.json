@@ -1,5 +1,5 @@
 {
   "version": "1.1.3",
-  "changelog": "Claude Desktop gateway stability fix: adds an internal tool contract / bounded repair loop for explicit tool_choice and readonly file checks without injecting contract notes into user prompts; synthesizes safe readonly file tool_use calls when a concrete file path and read-like tool are available; synthesizes a narrow safe git status tool_use after an authorized continuation when the previous assistant turn explicitly planned git status and a shell-like tool exists; avoids hard contract errors for broad continuation turns; reduces fake tool-result narration, large-context stream timeouts, preserves image tool results, and avoids concurrent account overload that can trigger 429 retry storms.",
-  "download": "https://github.com/dgy-github/Kiro-Go-Claude/releases/tag/v1.1.3-claude-fix"
+  "changelog": "Claude Desktop gateway stability fix: coordinates Claude Code native /compact with Kiro-Go request-size guarding; preserves active tool_use/tool_result context during truncation; infers the live Claude cwd from transcripts for auto compact so stale ProjectDir config does not steer new sessions into the wrong project; avoids injecting compact ProjectDir as the live prompt project root; classifies 400/413 as non-retryable; and treats endpoint/model-specific 429 quota responses as endpoint cooldowns unless account usage is truly at the account limit.",
+  "download": "https://github.com/dgy-github/Kiro-Go-Claude/releases/tag/v1.1.3-claude-fix.8"
 }

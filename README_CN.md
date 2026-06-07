@@ -25,6 +25,10 @@
 - 增加 pending-tool-intent 机制：如果上一轮 assistant 已经承诺要读文件、查日志或执行工具动作，而用户只回复“继续”“先读”这类短确认，网关会把这一轮导向真实工具调用，而不是再次生成口头占位。
 - 增加输出侧工具计划 repair：如果上游本轮直接输出“我先 grep/read/查一下”而不是结构化工具调用，网关会先 hold 住这段文本，触发一次 tool contract 修复，只把修复后的 `tool_use` 返回给客户端。
 - 当上游流在尚未输出任何文本或工具调用前断开时，自动尝试下一个上游端点，降低 `stream ID ... INTERNAL_ERROR` 直接暴露给客户端的概率。
+- 协调 Claude Code 原生 `/compact` 与 Kiro-Go 请求大小保护，避免长会话被重复压缩或丢失活跃的 `tool_use` / `tool_result` 上下文。
+- 自动触发原生 `/compact` 时优先读取 Claude transcript 里的真实 `cwd`，避免旧的 compact 配置把新会话带到错误项目目录。
+- `ProjectDir` 只作为运行 `/compact` 的工作目录提示，不再注入为 Claude Code prompt 里的实时项目根目录。
+- 对 429 quota 做更细的冷却：只有账号用量真的达到账号上限时才冻结账号，否则优先做端点级冷却，减少整账号一小时不可用。
 
 原始上游项目：[Quorinex/Kiro-Go](https://github.com/Quorinex/Kiro-Go)。
 
@@ -77,7 +81,7 @@ go build -o kiro-go .
 
 ### Windows Claude Desktop 构建版
 
-从 Release 页面下载 `kiro-go-v1.1.3-claude-fix.7-windows-amd64.zip`，解压后运行：
+从 Release 页面下载 `kiro-go-v1.1.3-claude-fix.8-windows-amd64.zip`，解压后运行：
 
 ```powershell
 .\start-kiro-go-claude.bat

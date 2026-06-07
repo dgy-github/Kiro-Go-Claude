@@ -102,7 +102,14 @@ func (h *Handler) handleAccountFailure(account *config.Account, err error) {
 		h.disableAccountOverage(account)
 		h.pool.RecordError(account.ID, false)
 	case isQuotaErrorMessage(errMsg):
-		h.pool.RecordError(account.ID, true)
+		if isAccountUsageAtLimit(account) {
+			h.pool.RecordError(account.ID, true)
+		} else {
+			// Upstream 429 can be endpoint/model/request-specific even when the
+			// account still has subscription quota. Endpoint cooldowns already
+			// handle those storms; do not freeze the whole account for an hour.
+			h.pool.RecordError(account.ID, false)
+		}
 	case isSuspensionErrorMessage(errMsg):
 		h.disableAccount(account, "BANNED", "AWS temporarily suspended - unusual user activity detected")
 	case isProfileUnavailableErrorMessage(errMsg):
@@ -115,4 +122,8 @@ func (h *Handler) handleAccountFailure(account *config.Account, err error) {
 	default:
 		h.pool.RecordError(account.ID, false)
 	}
+}
+
+func isAccountUsageAtLimit(account *config.Account) bool {
+	return account != nil && account.UsageLimit > 0 && account.UsageCurrent >= account.UsageLimit
 }

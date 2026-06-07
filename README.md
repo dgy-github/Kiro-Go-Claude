@@ -26,8 +26,11 @@ The `v1.1.3-claude-fix` release adds stability fixes for long coding-agent sessi
 - Repairs assistant-side tool-plan placeholders: if upstream starts a turn with text such as "I will grep/read first" instead of a structured tool call, the gateway holds that text, retries once with a tool contract, and only releases the repaired `tool_use`.
 - Retries the next upstream endpoint when a stream breaks before any assistant text or tool call is emitted, reducing surfaced `stream ID ... INTERNAL_ERROR` failures.
 - Coordinates Claude Code native `/compact` with Kiro-Go request-size guarding so long sessions do not get double-summarized or lose active `tool_use` / `tool_result` context.
+- Reads the live Claude transcript `cwd` when auto-running native `/compact`, so stale compact config cannot steer a new session into the wrong project.
+- Keeps native compact's `ProjectDir` as a command working-directory hint only; it is no longer injected as the live `Current project root` in Claude Code prompts.
 - Adds cross-protocol active tool-turn checks for Anthropic `/v1/messages`, OpenAI `/v1/chat/completions`, and Responses `/v1/responses`.
 - Classifies upstream 400/413 payload or protocol errors as non-retryable, avoiding endpoint retry storms when the same malformed request would fail everywhere.
+- Treats endpoint/model-specific 429 quota responses as endpoint cooldowns unless account usage is actually at the account limit, avoiding one-hour whole-account freezes when other endpoints can still work.
 
 Original upstream project: [Quorinex/Kiro-Go](https://github.com/Quorinex/Kiro-Go).
 
@@ -80,7 +83,7 @@ go build -o kiro-go .
 
 ### Windows Claude Desktop Build
 
-Download `kiro-go-v1.1.3-claude-fix.7-windows-amd64.zip` from the release page, unzip it, then run:
+Download `kiro-go-v1.1.3-claude-fix.8-windows-amd64.zip` from the release page, unzip it, then run:
 
 ```powershell
 .\start-kiro-go-claude.bat

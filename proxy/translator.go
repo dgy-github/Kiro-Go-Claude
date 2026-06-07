@@ -532,11 +532,11 @@ func extractProjectContextLine(prompt string) string {
 }
 
 func configuredProjectContextLine() string {
-	projectDir := strings.TrimSpace(config.GetClaudeNativeCompactConfig().ProjectDir)
-	if projectDir == "" {
-		return ""
-	}
-	return "Current project root: " + projectDir
+	// Claude native compact's ProjectDir is only a working directory hint for
+	// running `claude /compact`; it must not override Claude Code's live cwd.
+	// Reusing it here caused cross-project drift when a later session ran from a
+	// sibling repo but the compact config still pointed at an older project.
+	return ""
 }
 
 func appendProjectContextLine(prompt, projectContext string) string {

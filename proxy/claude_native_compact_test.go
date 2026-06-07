@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"kiro-go/config"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -56,6 +58,36 @@ func TestPowerShellQuote(t *testing.T) {
 	got := powerShellQuote("abc'def")
 	if got != "'abc''def'" {
 		t.Fatalf("unexpected PowerShell quote: %q", got)
+	}
+}
+
+func TestClaudeCompactProjectDirPrefersInferredDirWhenSessionAutoSelected(t *testing.T) {
+	cfg := config.ClaudeNativeCompactConfig{
+		ProjectDir: `D:\agent_prac\nanocodex`,
+	}
+	sessionDir := filepath.Join(t.TempDir(), "D--agent-prac")
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sessionFile := filepath.Join(sessionDir, "session.jsonl")
+	if err := os.WriteFile(sessionFile, []byte(`{"cwd":"D:\\agent_prac"}`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := claudeCompactProjectDirForSession(cfg, sessionFile)
+	if got != `D:\agent_prac` {
+		t.Fatalf("expected inferred live session dir, got %q", got)
+	}
+}
+
+func TestClaudeCompactProjectDirHonorsConfiguredDirWhenSessionExplicit(t *testing.T) {
+	cfg := config.ClaudeNativeCompactConfig{
+		SessionID:  "session",
+		ProjectDir: `D:\agent_prac\nanocodex`,
+	}
+	got := claudeCompactProjectDirForSession(cfg, `C:\Users\jingc\.claude\projects\D--agent-prac\session.jsonl`)
+	if got != `D:\agent_prac\nanocodex` {
+		t.Fatalf("expected explicit session config project dir, got %q", got)
 	}
 }
 

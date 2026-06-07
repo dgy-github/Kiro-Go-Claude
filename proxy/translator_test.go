@@ -146,9 +146,8 @@ func TestClaudeNormalContinuationDoesNotGetToolUseNudge(t *testing.T) {
 	}
 
 	payload := ClaudeToKiro(req, false)
-	content := payload.ConversationState.CurrentMessage.UserInputMessage.Content
-	if strings.Contains(content, backendToolUseNudge) {
-		t.Fatalf("did not expect backend tool-use nudge for normal continuation, got %q", content)
+	if payload.ToolContract != nil {
+		t.Fatalf("did not expect tool contract for normal continuation")
 	}
 }
 
@@ -169,6 +168,15 @@ func TestClaudeReadonlyFileCheckGetsToolUseNudge(t *testing.T) {
 	if payload.ToolContract.Source != "readonly-inspection" {
 		t.Fatalf("expected readonly-inspection source, got %q", payload.ToolContract.Source)
 	}
+	if payload.ToolContract.SyntheticToolUse == nil {
+		t.Fatalf("expected synthetic read tool use for readonly file check")
+	}
+	if payload.ToolContract.SyntheticToolUse.Name != "read" {
+		t.Fatalf("expected synthetic read tool, got %q", payload.ToolContract.SyntheticToolUse.Name)
+	}
+	if got := payload.ToolContract.SyntheticToolUse.Input["path"]; got != "_probe_sched.py" {
+		t.Fatalf("expected synthetic path _probe_sched.py, got %#v", got)
+	}
 	if strings.Contains(content, "Kiro-Go tool contract") {
 		t.Fatalf("tool contract must not be injected into user content, got %q", content)
 	}
@@ -186,9 +194,8 @@ func TestClaudeCasualConfirmQuestionDoesNotGetToolUseNudge(t *testing.T) {
 	}
 
 	payload := ClaudeToKiro(req, false)
-	content := payload.ConversationState.CurrentMessage.UserInputMessage.Content
-	if strings.Contains(content, backendToolUseNudge) {
-		t.Fatalf("did not expect backend tool-use nudge for casual confirmation, got %q", content)
+	if payload.ToolContract != nil {
+		t.Fatalf("did not expect tool contract for casual confirmation")
 	}
 }
 
@@ -232,6 +239,34 @@ func TestClaudeToolChoiceAnyBuildsToolContract(t *testing.T) {
 	}
 	if payload.ToolContract.Source != "tool_choice" {
 		t.Fatalf("expected tool_choice source, got %q", payload.ToolContract.Source)
+	}
+}
+
+func TestSyntheticReadToolUsesFilePathSchemaKey(t *testing.T) {
+	tool := testClaudeReadTool()
+	tool.InputSchema = map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"file_path": map[string]interface{}{"type": "string"},
+		},
+	}
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{tool},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "检查 `src/main.go` 是否存在"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract == nil || payload.ToolContract.SyntheticToolUse == nil {
+		t.Fatalf("expected synthetic tool use")
+	}
+	if got := payload.ToolContract.SyntheticToolUse.Input["file_path"]; got != "src/main.go" {
+		t.Fatalf("expected file_path src/main.go, got %#v", got)
+	}
+	if _, exists := payload.ToolContract.SyntheticToolUse.Input["path"]; exists {
+		t.Fatalf("did not expect fallback path key when file_path exists")
 	}
 }
 

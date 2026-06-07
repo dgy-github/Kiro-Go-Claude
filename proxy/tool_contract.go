@@ -28,6 +28,13 @@ func shouldHoldToolContractText(payload *KiroPayload) bool {
 		contract.RepairAttempts < maxToolContractRepairAttempts
 }
 
+func syntheticToolUse(payload *KiroPayload) (KiroToolUse, bool) {
+	if payload == nil || payload.ToolContract == nil || payload.ToolContract.SyntheticToolUse == nil {
+		return KiroToolUse{}, false
+	}
+	return *payload.ToolContract.SyntheticToolUse, true
+}
+
 func prepareToolContractRepair(payload *KiroPayload, observedText string) bool {
 	if payload == nil || payload.ToolContract == nil {
 		return false

@@ -132,6 +132,22 @@ func (h *Handler) handleResponsesNonStream(
 	excluded := make(map[string]bool)
 	var lastErr error
 
+	if tu, ok := syntheticToolUse(payload); ok {
+		outputTokens := estimateOpenAIOutputTokens("", "", []KiroToolUse{tu})
+		h.recordSuccessForApiKey(apiKeyID, estimatedInputTokens, outputTokens, 0)
+		respObj := buildResponsesObject(respID, model, "", []KiroToolUse{tu}, estimatedInputTokens, outputTokens, req)
+		respObj.StoredInput = storedInput
+		respObj.Instructions = req.Instructions
+		if storeResponse {
+			if saveErr := saveResponse(respObj); saveErr != nil {
+				logResponsesPersistFailure(respObj.ID, saveErr)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(respObj)
+		return
+	}
+
 	for attempt := 0; attempt < maxAccountRetryAttempts; attempt++ {
 		account := h.pool.GetNextForModelExcluding(model, excluded)
 		if account == nil {
@@ -321,6 +337,46 @@ func (h *Handler) handleResponsesStream(
 		"type":     "response.created",
 		"response": initial,
 	})
+
+	if tu, ok := syntheticToolUse(payload); ok {
+		args, _ := json.Marshal(tu.Input)
+		item := map[string]interface{}{
+			"id":        generateOutputItemID("fc"),
+			"type":      "function_call",
+			"status":    "completed",
+			"call_id":   tu.ToolUseID,
+			"name":      tu.Name,
+			"arguments": string(args),
+		}
+		send("response.output_item.added", map[string]interface{}{
+			"type":         "response.output_item.added",
+			"output_index": 0,
+			"item":         item,
+		})
+		send("response.output_item.done", map[string]interface{}{
+			"type":         "response.output_item.done",
+			"output_index": 0,
+			"item":         item,
+		})
+		outputTokens := estimateOpenAIOutputTokens("", "", []KiroToolUse{tu})
+		respObj := buildResponsesObject(respID, model, "", []KiroToolUse{tu}, estimatedInputTokens, outputTokens, req)
+		respObj.CreatedAt = createdAt
+		respObj.StoredInput = storedInput
+		respObj.Instructions = req.Instructions
+		if storeResponse {
+			if saveErr := saveResponse(respObj); saveErr != nil {
+				logResponsesPersistFailure(respObj.ID, saveErr)
+			}
+		}
+		h.recordSuccessForApiKey(apiKeyID, estimatedInputTokens, outputTokens, 0)
+		send("response.completed", map[string]interface{}{
+			"type":     "response.completed",
+			"response": respObj,
+		})
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+		return
+	}
 
 	excluded := make(map[string]bool)
 	var lastErr error

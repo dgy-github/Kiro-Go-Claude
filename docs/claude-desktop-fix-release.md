@@ -15,6 +15,7 @@ Upstream project:
 - Treats readonly diagnosis as pre-authorized in the backend prompt, so file reads, log reads, grep, and JSONL inspection should not require another confirmation.
 - Adds a formal tool contract / repair loop. Claude, OpenAI Chat Completions, and Responses `tool_choice` requests are tracked as internal gateway state, not injected into the user prompt; if upstream returns text-only placeholders when a tool is required, Kiro-Go runs one bounded repair retry and then returns `tool_contract_violation` instead of passing the placeholder back to Claude Desktop.
 - Keeps readonly file-check detection as a temporary fallback source for the tool contract when the client does not send `tool_choice`.
+- Synthesizes safe readonly file `tool_use` calls when the user asks to verify a concrete file path and a read-like tool is available, instead of relying on upstream text generation.
 - Raises Kiro upstream streaming request timeout from 90 seconds to 5 minutes for large-context Claude Code sessions.
 - Preserves image-bearing current `tool_result` payloads while keeping orphan text tool results flattened for upstream compatibility.
 - Adds diagnostics for Kiro payload size, endpoint status, stream timing, and 400 payload-shape issues.

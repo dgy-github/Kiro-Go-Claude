@@ -543,8 +543,6 @@ func appendProjectContextLine(prompt, projectContext string) string {
 	return strings.TrimSpace(collapseBlankLines(strings.Join(out, "\n")))
 }
 
-const backendToolUseNudge = "[Kiro-Go backend note: The user has already authorized continuation or requested a readonly check. If the task involves verifying a file, listing files, reading files/logs, grepping code, or gathering evidence, do not write a natural-language placeholder such as \"I will check\" or \"Verifying ...\". Emit the real structured tool_use calls now. If no tool is needed, provide the final answer.]"
-
 func shouldForceToolUseAfterContinuation(currentUser, previousAssistant string) bool {
 	current := strings.ToLower(strings.TrimSpace(currentUser))
 	if current == "" {
@@ -619,9 +617,10 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 		return nil
 	}
 	return &ToolContract{
-		RequiresTool:   true,
-		Source:         source,
-		AvailableTools: available,
+		RequiresTool:     true,
+		Source:           source,
+		AvailableTools:   available,
+		SyntheticToolUse: synthesizeReadonlyFileToolUse(currentUser, source, tools),
 	}
 }
 
@@ -702,6 +701,72 @@ func toolNamesFromWrappers(tools []KiroToolWrapper) []string {
 	return names
 }
 
+func synthesizeReadonlyFileToolUse(currentUser, source string, tools []KiroToolWrapper) *KiroToolUse {
+	if source != "readonly-inspection" {
+		return nil
+	}
+	path := extractLikelyFilePath(currentUser)
+	if path == "" {
+		return nil
+	}
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.ToolSpecification.Name)
+		if !isReadLikeToolName(name) {
+			continue
+		}
+		inputKey := chooseFilePathInputKey(tool)
+		return &KiroToolUse{
+			ToolUseID: "toolu_kiro_go_" + strings.ReplaceAll(uuid.New().String(), "-", ""),
+			Name:      name,
+			Input:     map[string]interface{}{inputKey: path},
+		}
+	}
+	return nil
+}
+
+func isReadLikeToolName(name string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(name, "_", ""), "-", ""))
+	return normalized == "read" ||
+		normalized == "readfile" ||
+		normalized == "fileread" ||
+		strings.Contains(normalized, "readfile")
+}
+
+func chooseFilePathInputKey(tool KiroToolWrapper) string {
+	schema, ok := tool.ToolSpecification.InputSchema.JSON.(map[string]interface{})
+	if !ok {
+		return "path"
+	}
+	props, ok := schema["properties"].(map[string]interface{})
+	if !ok {
+		return "path"
+	}
+	for _, key := range []string{"file_path", "filepath", "path", "absolute_path", "filename", "file"} {
+		if _, exists := props[key]; exists {
+			return key
+		}
+	}
+	return "path"
+}
+
+func extractLikelyFilePath(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile("`([^`]+\\.[A-Za-z0-9]{1,12})`"),
+		regexp.MustCompile(`(?i)([A-Za-z]:[\\/][^\s，。；;'"<>]+)`),
+		regexp.MustCompile(`(?i)((?:\.{1,2}[\\/])?[A-Za-z0-9_.-]+(?:[\\/][A-Za-z0-9_.-]+)*\.[A-Za-z0-9]{1,12})`),
+	}
+	for _, re := range patterns {
+		if m := re.FindStringSubmatch(text); len(m) > 1 {
+			return strings.Trim(m[1], " \t\r\n，。；;：:()[]{}\"'")
+		}
+	}
+	return ""
+}
+
 func isReadonlyInspectionRequest(current string) bool {
 	if current == "" {
 		return false
@@ -729,17 +794,6 @@ func isReadonlyInspectionRequest(current string) bool {
 		}
 	}
 	return false
-}
-
-func appendBackendToolUseNudge(content string) string {
-	content = strings.TrimSpace(content)
-	if content == "" || content == minimalFallbackUserContent {
-		return backendToolUseNudge
-	}
-	if strings.Contains(content, backendToolUseNudge) {
-		return content
-	}
-	return content + "\n\n" + backendToolUseNudge
 }
 
 // claudeCodeBackendPrompt is injected when a Claude Code CLI system prompt is detected.

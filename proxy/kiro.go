@@ -178,11 +178,12 @@ type KiroPayload struct {
 }
 
 type ToolContract struct {
-	RequiresTool   bool
-	ToolName       string
-	Source         string
-	AvailableTools []string
-	RepairAttempts int
+	RequiresTool     bool
+	ToolName         string
+	Source           string
+	AvailableTools   []string
+	RepairAttempts   int
+	SyntheticToolUse *KiroToolUse
 }
 
 type KiroUserInputMessage struct {

@@ -870,6 +870,40 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 		messageStarted = true
 	}
 
+	if tu, ok := syntheticToolUse(payload); ok {
+		ensureMessageStart()
+		h.sendSSE(w, flusher, "content_block_start", map[string]interface{}{
+			"type":  "content_block_start",
+			"index": 0,
+			"content_block": map[string]interface{}{
+				"type":  "tool_use",
+				"id":    tu.ToolUseID,
+				"name":  tu.Name,
+				"input": map[string]interface{}{},
+			},
+		})
+		inputJSON, _ := json.Marshal(tu.Input)
+		h.sendSSE(w, flusher, "content_block_delta", map[string]interface{}{
+			"type":  "content_block_delta",
+			"index": 0,
+			"delta": map[string]interface{}{
+				"type":         "input_json_delta",
+				"partial_json": string(inputJSON),
+			},
+		})
+		h.sendSSE(w, flusher, "content_block_stop", map[string]interface{}{
+			"type":  "content_block_stop",
+			"index": 0,
+		})
+		h.sendSSE(w, flusher, "message_delta", map[string]interface{}{
+			"type":  "message_delta",
+			"delta": map[string]interface{}{"stop_reason": "tool_use"},
+			"usage": buildClaudeUsageMap(estimatedInputTokens, estimateClaudeOutputTokens("", "", []KiroToolUse{tu}), promptCacheUsage{}, cacheProfile != nil),
+		})
+		h.sendSSE(w, flusher, "message_stop", map[string]interface{}{"type": "message_stop"})
+		return
+	}
+
 	for attempt := 0; attempt < maxAccountRetryAttempts; attempt++ {
 		account := h.pool.GetNextForModelExcluding(model, excluded)
 		if account == nil {
@@ -1365,6 +1399,14 @@ func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, payload *KiroPayl
 	excluded := make(map[string]bool)
 	var lastErr error
 
+	if tu, ok := syntheticToolUse(payload); ok {
+		outputTokens := estimateClaudeOutputTokens("", "", []KiroToolUse{tu})
+		resp := KiroToClaudeResponse("", "", false, []KiroToolUse{tu}, estimatedInputTokens, outputTokens, model)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(resp)
+		return
+	}
+
 	for attempt := 0; attempt < maxAccountRetryAttempts; attempt++ {
 		account := h.pool.GetNextForModelExcluding(model, excluded)
 		if account == nil {
@@ -1558,6 +1600,35 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, payload *KiroPayload
 	thinkingFormat := config.GetThinkingConfig().OpenAIFormat
 
 	chatID := "chatcmpl-" + uuid.New().String()
+	if tu, ok := syntheticToolUse(payload); ok {
+		args, _ := json.Marshal(tu.Input)
+		chunk := map[string]interface{}{
+			"id":      chatID,
+			"object":  "chat.completion.chunk",
+			"created": time.Now().Unix(),
+			"model":   model,
+			"choices": []map[string]interface{}{{
+				"index": 0,
+				"delta": map[string]interface{}{
+					"tool_calls": []map[string]interface{}{{
+						"index": 0,
+						"id":    tu.ToolUseID,
+						"type":  "function",
+						"function": map[string]string{
+							"name":      tu.Name,
+							"arguments": string(args),
+						},
+					}},
+				},
+				"finish_reason": "tool_calls",
+			}},
+		}
+		data, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", string(data))
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+		return
+	}
 	excluded := make(map[string]bool)
 	var lastErr error
 
@@ -1958,6 +2029,14 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, payload *KiroPayload
 func (h *Handler) handleOpenAINonStream(w http.ResponseWriter, payload *KiroPayload, model string, thinking bool, estimatedInputTokens int, apiKeyID string) {
 	excluded := make(map[string]bool)
 	var lastErr error
+
+	if tu, ok := syntheticToolUse(payload); ok {
+		outputTokens := estimateOpenAIOutputTokens("", "", []KiroToolUse{tu})
+		resp := KiroToOpenAIResponseWithReasoning("", "", []KiroToolUse{tu}, estimatedInputTokens, outputTokens, model, config.GetThinkingConfig().OpenAIFormat)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(resp)
+		return
+	}
 
 	for attempt := 0; attempt < maxAccountRetryAttempts; attempt++ {
 		account := h.pool.GetNextForModelExcluding(model, excluded)

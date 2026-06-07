@@ -14,6 +14,7 @@ Upstream project:
 - Adds a continuation guard: when the user says `继续` / `可以` / `确定` after the assistant already planned a readonly inspection, Kiro-Go nudges the model to call real tools instead of restating the plan.
 - Treats readonly diagnosis as pre-authorized in the backend prompt, so file reads, log reads, grep, and JSONL inspection should not require another confirmation.
 - Adds a formal tool contract / repair loop. Claude, OpenAI Chat Completions, and Responses `tool_choice` requests are tracked as internal gateway state, not injected into the user prompt; if upstream returns text-only placeholders when a tool is required, Kiro-Go runs one bounded repair retry and then returns `tool_contract_violation` instead of passing the placeholder back to Claude Desktop.
+- Separates tool runner contract modes internally: safe synthetic tool calls now bypass upstream repair, while explicit `tool_choice` remains an upstream-enforced contract. This is the first Claude Code-style runner refactor layer, not another prompt keyword patch.
 - Keeps readonly file-check detection as a temporary fallback source for the tool contract when the client does not send `tool_choice`.
 - Synthesizes safe readonly file `tool_use` calls when the user asks to verify a concrete file path and a read-like tool is available, instead of relying on upstream text generation.
 - Synthesizes a narrow safe `git status --short --branch` tool call after an authorized continuation when the previous assistant turn explicitly planned `git status` and a shell-like tool is available.

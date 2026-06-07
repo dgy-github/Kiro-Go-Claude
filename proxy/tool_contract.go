@@ -4,12 +4,49 @@ import "strings"
 
 const maxToolContractRepairAttempts = 1
 
-func shouldRepairToolContract(payload *KiroPayload, content string, toolUses []KiroToolUse) bool {
+const (
+	toolContractModeRequireUpstreamTool = "require_upstream_tool"
+	toolContractModeSyntheticToolUse    = "synthetic_tool_use"
+)
+
+type toolRunnerAction struct {
+	DirectToolUse *KiroToolUse
+	HoldText      bool
+	EnforceTool   bool
+}
+
+func decideToolRunnerAction(payload *KiroPayload) toolRunnerAction {
 	if payload == nil || payload.ToolContract == nil {
-		return false
+		return toolRunnerAction{}
 	}
 	contract := payload.ToolContract
 	if !contract.RequiresTool || len(contract.AvailableTools) == 0 {
+		return toolRunnerAction{}
+	}
+	mode := contract.Mode
+	if mode == "" && contract.SyntheticToolUse != nil {
+		mode = toolContractModeSyntheticToolUse
+	}
+	if mode == "" {
+		mode = toolContractModeRequireUpstreamTool
+	}
+
+	switch mode {
+	case toolContractModeSyntheticToolUse:
+		return toolRunnerAction{DirectToolUse: contract.SyntheticToolUse}
+	case toolContractModeRequireUpstreamTool:
+		return toolRunnerAction{
+			HoldText:    contract.RepairAttempts < maxToolContractRepairAttempts,
+			EnforceTool: true,
+		}
+	default:
+		return toolRunnerAction{}
+	}
+}
+
+func shouldRepairToolContract(payload *KiroPayload, content string, toolUses []KiroToolUse) bool {
+	action := decideToolRunnerAction(payload)
+	if !action.EnforceTool {
 		return false
 	}
 	if len(toolUses) > 0 {
@@ -19,20 +56,15 @@ func shouldRepairToolContract(payload *KiroPayload, content string, toolUses []K
 }
 
 func shouldHoldToolContractText(payload *KiroPayload) bool {
-	if payload == nil || payload.ToolContract == nil {
-		return false
-	}
-	contract := payload.ToolContract
-	return contract.RequiresTool &&
-		len(contract.AvailableTools) > 0 &&
-		contract.RepairAttempts < maxToolContractRepairAttempts
+	return decideToolRunnerAction(payload).HoldText
 }
 
 func syntheticToolUse(payload *KiroPayload) (KiroToolUse, bool) {
-	if payload == nil || payload.ToolContract == nil || payload.ToolContract.SyntheticToolUse == nil {
+	tu := decideToolRunnerAction(payload).DirectToolUse
+	if tu == nil {
 		return KiroToolUse{}, false
 	}
-	return *payload.ToolContract.SyntheticToolUse, true
+	return *tu, true
 }
 
 func prepareToolContractRepair(payload *KiroPayload, observedText string) bool {

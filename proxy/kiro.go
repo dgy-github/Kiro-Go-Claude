@@ -181,6 +181,7 @@ type ToolContract struct {
 	RequiresTool     bool
 	ToolName         string
 	Source           string
+	Mode             string
 	AvailableTools   []string
 	RepairAttempts   int
 	SyntheticToolUse *KiroToolUse

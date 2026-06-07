@@ -169,6 +169,9 @@ func TestClaudeContinuationAfterGitStatusPlanSynthesizesCommand(t *testing.T) {
 	if payload.ToolContract.Source != "authorized-continuation" {
 		t.Fatalf("expected authorized-continuation source, got %q", payload.ToolContract.Source)
 	}
+	if payload.ToolContract.Mode != toolContractModeSyntheticToolUse {
+		t.Fatalf("expected synthetic tool contract mode, got %q", payload.ToolContract.Mode)
+	}
 	tu := payload.ToolContract.SyntheticToolUse
 	if tu.Name != "execCommand" {
 		t.Fatalf("expected execCommand tool, got %q", tu.Name)
@@ -283,6 +286,9 @@ func TestClaudeToolChoiceAnyBuildsToolContract(t *testing.T) {
 	if payload.ToolContract.Source != "tool_choice" {
 		t.Fatalf("expected tool_choice source, got %q", payload.ToolContract.Source)
 	}
+	if payload.ToolContract.Mode != toolContractModeRequireUpstreamTool {
+		t.Fatalf("expected require-upstream-tool mode, got %q", payload.ToolContract.Mode)
+	}
 }
 
 func TestSyntheticReadToolUsesFilePathSchemaKey(t *testing.T) {
@@ -336,6 +342,7 @@ func TestToolContractRepairIsBounded(t *testing.T) {
 	payload := &KiroPayload{
 		ToolContract: &ToolContract{
 			RequiresTool:   true,
+			Mode:           toolContractModeRequireUpstreamTool,
 			AvailableTools: []string{"read"},
 		},
 	}
@@ -356,6 +363,47 @@ func TestToolContractRepairIsBounded(t *testing.T) {
 	msg := toolContractViolationMessage(payload.ToolContract, "Still checking.")
 	if !strings.Contains(msg, "tool_contract") && !strings.Contains(msg, "tool") {
 		t.Fatalf("expected explicit violation message, got %q", msg)
+	}
+}
+
+func TestToolRunnerActionSeparatesSyntheticFromUpstreamRepair(t *testing.T) {
+	synthetic := &KiroPayload{
+		ToolContract: &ToolContract{
+			RequiresTool:   true,
+			Mode:           toolContractModeSyntheticToolUse,
+			AvailableTools: []string{"read"},
+			SyntheticToolUse: &KiroToolUse{
+				ToolUseID: "toolu_test",
+				Name:      "read",
+				Input:     map[string]interface{}{"path": "HANDOFF.md"},
+			},
+		},
+	}
+	if _, ok := syntheticToolUse(synthetic); !ok {
+		t.Fatalf("expected synthetic contract to produce direct tool use")
+	}
+	if shouldHoldToolContractText(synthetic) {
+		t.Fatalf("synthetic contract should bypass upstream text holding")
+	}
+	if shouldRepairToolContract(synthetic, "I'll read it now.", nil) {
+		t.Fatalf("synthetic contract should not enter upstream repair loop")
+	}
+
+	upstream := &KiroPayload{
+		ToolContract: &ToolContract{
+			RequiresTool:   true,
+			Mode:           toolContractModeRequireUpstreamTool,
+			AvailableTools: []string{"read"},
+		},
+	}
+	if _, ok := syntheticToolUse(upstream); ok {
+		t.Fatalf("upstream-required contract must not synthesize a tool")
+	}
+	if !shouldHoldToolContractText(upstream) {
+		t.Fatalf("upstream-required contract should hold placeholder text before repair")
+	}
+	if !shouldRepairToolContract(upstream, "I'll read it now.", nil) {
+		t.Fatalf("upstream-required contract should repair text-only responses")
 	}
 }
 

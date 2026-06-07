@@ -606,6 +606,7 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 			RequiresTool:   true,
 			ToolName:       toolName,
 			Source:         source,
+			Mode:           toolContractModeRequireUpstreamTool,
 			AvailableTools: available,
 		}
 	}
@@ -626,6 +627,7 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 	return &ToolContract{
 		RequiresTool:     true,
 		Source:           source,
+		Mode:             toolContractModeSyntheticToolUse,
 		AvailableTools:   available,
 		SyntheticToolUse: syntheticToolUse,
 	}

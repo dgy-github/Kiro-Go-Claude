@@ -46,14 +46,8 @@ func decideToolRunnerAction(payload *KiroPayload) toolRunnerAction {
 }
 
 func shouldRepairToolContract(payload *KiroPayload, content string, toolUses []KiroToolUse) bool {
-	action := decideToolRunnerAction(payload)
-	if !action.EnforceTool {
-		return false
-	}
-	if len(toolUses) > 0 {
-		return false
-	}
-	return strings.TrimSpace(content) != ""
+	decision := evaluateToolContractState(payload, content, toolUses)
+	return !decision.OK
 }
 
 func shouldWatchAssistantToolPlan(payload *KiroPayload) bool {
@@ -64,28 +58,13 @@ func shouldWatchAssistantToolPlan(payload *KiroPayload) bool {
 }
 
 func shouldRepairAssistantToolPlan(payload *KiroPayload, content string, toolUses []KiroToolUse) bool {
-	if !shouldWatchAssistantToolPlan(payload) {
-		return false
-	}
-	if len(toolUses) > 0 {
-		return false
-	}
-	return looksLikeAssistantToolPlanPlaceholder(content)
+	decision := evaluateAssistantToolPlanState(payload, content, toolUses)
+	return !decision.OK
 }
 
 func prepareAssistantToolPlanRepair(payload *KiroPayload, observedText string) bool {
-	if payload == nil {
-		return false
-	}
-	if payload.ToolContract == nil {
-		payload.ToolContract = &ToolContract{
-			RequiresTool:   true,
-			Source:         "assistant-tool-plan",
-			Mode:           toolContractModeRequireUpstreamTool,
-			AvailableTools: availableToolNamesFromPayload(payload),
-		}
-	}
-	return prepareToolContractRepair(payload, observedText)
+	decision := evaluateAssistantToolPlanState(payload, observedText, nil)
+	return newToolStateMachine(payload).PrepareRepair(decision)
 }
 
 func availableToolNamesFromPayload(payload *KiroPayload) []string {
@@ -129,15 +108,15 @@ func looksLikeAssistantToolPlanPlaceholder(content string) bool {
 }
 
 func shouldHoldToolContractText(payload *KiroPayload) bool {
-	return decideToolRunnerAction(payload).HoldText
+	return newToolStateMachine(payload).ShouldHoldContractText()
 }
 
 func shouldSuppressToolContractVisibleText(payload *KiroPayload) bool {
-	return decideToolRunnerAction(payload).EnforceTool
+	return newToolStateMachine(payload).ShouldSuppressVisibleText()
 }
 
 func suppressToolContractFinalText(payload *KiroPayload, content string, toolUses []KiroToolUse) string {
-	if shouldSuppressToolContractVisibleText(payload) && len(toolUses) > 0 {
+	if newToolStateMachine(payload).ShouldSuppressFinalText(toolUses) {
 		return ""
 	}
 	return content

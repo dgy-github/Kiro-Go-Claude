@@ -630,6 +630,9 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 			Mode:           toolContractModeRequireUpstreamTool,
 			AvailableTools: available,
 		}
+		if toolName != "" {
+			contract.MaxToolUses = 1
+		}
 		logToolContractDecision("created", currentLower, previousLower, available, contract)
 		return contract
 	}
@@ -2196,8 +2199,19 @@ func currentToolResultsMatchLastAssistant(history []KiroHistoryMessage, currentT
 	if last.AssistantResponseMessage == nil || len(last.AssistantResponseMessage.ToolUses) == 0 {
 		return false
 	}
+	lastIDs := make(map[string]bool, len(last.AssistantResponseMessage.ToolUses))
 	for _, tu := range last.AssistantResponseMessage.ToolUses {
-		if !currentToolResultIDs[tu.ToolUseID] {
+		id := strings.TrimSpace(tu.ToolUseID)
+		if id == "" {
+			continue
+		}
+		lastIDs[id] = true
+		if !currentToolResultIDs[id] {
+			return false
+		}
+	}
+	for id := range currentToolResultIDs {
+		if !lastIDs[id] {
 			return false
 		}
 	}

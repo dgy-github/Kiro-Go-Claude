@@ -184,6 +184,7 @@ type ToolContract struct {
 	Mode             string
 	AvailableTools   []string
 	RepairAttempts   int
+	MaxToolUses      int
 	SyntheticToolUse *KiroToolUse
 }
 

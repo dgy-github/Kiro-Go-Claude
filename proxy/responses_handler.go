@@ -166,16 +166,21 @@ func (h *Handler) handleResponsesNonStream(
 		var inputTokens, outputTokens int
 		var credits float64
 		var realInputTokens int
+		toolState := newToolStateMachine(payload)
 
 		callback := &KiroStreamCallback{
 			OnText: func(text string, isThinking bool) {
+				toolState.ObserveText(text, isThinking)
 				if isThinking {
 					reasoningContent += text
 				} else {
 					content += text
 				}
 			},
-			OnToolUse:  func(tu KiroToolUse) { toolUses = append(toolUses, restoreToolUseName(tu, payload.ToolNameMap)) },
+			OnToolUse: func(tu KiroToolUse) {
+				toolUses = append(toolUses, restoreToolUseName(tu, payload.ToolNameMap))
+				toolState.ObserveToolUse(toolUses[len(toolUses)-1])
+			},
 			OnComplete: func(inTok, outTok int) { inputTokens = inTok; outputTokens = outTok },
 			OnCredits:  func(c float64) { credits = c },
 			OnContextUsage: func(pct float64) {
@@ -197,16 +202,19 @@ func (h *Handler) handleResponsesNonStream(
 		if !thinking {
 			reasoningContent = ""
 		}
-		if shouldRepairToolContract(payload, finalContent, toolUses) {
-			if prepareToolContractRepair(payload, finalContent) {
+		toolDecision := toolState.Finalize(finalContent, toolUses)
+		if !toolDecision.OK {
+			if toolState.PrepareRepair(toolDecision) {
 				attempt--
 				continue
 			}
 			h.recordFailure()
-			h.sendOpenAIError(w, 500, "tool_contract_violation", toolContractViolationMessage(payload.ToolContract, finalContent))
+			h.sendOpenAIError(w, 500, "tool_contract_violation", toolDecision.Message)
 			return
 		}
-		finalContent = suppressToolContractFinalText(payload, finalContent, toolUses)
+		if toolState.ShouldSuppressFinalText(toolUses) {
+			finalContent = ""
+		}
 
 		if realInputTokens > 0 {
 			inputTokens = realInputTokens
@@ -411,6 +419,7 @@ func (h *Handler) handleResponsesStream(
 			credits         float64
 			realInputTokens int
 		)
+		toolState := newToolStateMachine(payload)
 
 		messageItemID := generateOutputItemID("msg")
 		messageStarted := false
@@ -455,7 +464,8 @@ func (h *Handler) handleResponsesStream(
 					return
 				}
 				fullText.WriteString(text)
-				if shouldSuppressToolContractVisibleText(payload) {
+				toolState.ObserveText(text, isThinking)
+				if toolState.ShouldSuppressVisibleText() {
 					return
 				}
 				ensureMessageStarted()
@@ -470,6 +480,7 @@ func (h *Handler) handleResponsesStream(
 			},
 			OnToolUse: func(tu KiroToolUse) {
 				tu = restoreToolUseName(tu, payload.ToolNameMap)
+				toolState.ObserveToolUse(tu)
 				if messageStarted {
 					send("response.content_part.done", map[string]interface{}{
 						"type":          "response.content_part.done",
@@ -572,8 +583,9 @@ func (h *Handler) handleResponsesStream(
 		if !thinking {
 			reasoning = ""
 		}
-		if shouldRepairToolContract(payload, finalContent, toolUses) {
-			if prepareToolContractRepair(payload, finalContent) {
+		toolDecision := toolState.Finalize(finalContent, toolUses)
+		if !toolDecision.OK {
+			if !responseStarted && toolState.PrepareRepair(toolDecision) {
 				attempt--
 				continue
 			}
@@ -585,13 +597,15 @@ func (h *Handler) handleResponsesStream(
 					"status": "failed",
 					"error": map[string]string{
 						"type":    "tool_contract_violation",
-						"message": toolContractViolationMessage(payload.ToolContract, finalContent),
+						"message": toolDecision.Message,
 					},
 				},
 			})
 			return
 		}
-		finalContent = suppressToolContractFinalText(payload, finalContent, toolUses)
+		if toolState.ShouldSuppressFinalText(toolUses) {
+			finalContent = ""
+		}
 
 		if messageStarted {
 			send("response.content_part.done", map[string]interface{}{

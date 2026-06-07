@@ -2,6 +2,12 @@
 
 This release is a local Claude Desktop / Claude Code gateway stability fix build.
 
+Fork repository:
+[dgy-github/Kiro-Go-Claude](https://github.com/dgy-github/Kiro-Go-Claude)
+
+Upstream project:
+[Quorinex/Kiro-Go](https://github.com/Quorinex/Kiro-Go)
+
 ## What This Fixes
 
 - Prevents assistant turns from replaying fake tool transcripts such as `Tool results:` / `[Read]` instead of issuing real tool calls.
@@ -10,12 +16,13 @@ This release is a local Claude Desktop / Claude Code gateway stability fix build
 - Raises Kiro upstream streaming request timeout from 90 seconds to 5 minutes for large-context Claude Code sessions.
 - Preserves image-bearing current `tool_result` payloads while keeping orphan text tool results flattened for upstream compatibility.
 - Adds diagnostics for Kiro payload size, endpoint status, stream timing, and 400 payload-shape issues.
+- Adds per-account in-flight request tracking. Concurrent requests now prefer idle accounts first, which reduces the chance of overloading one account and causing repeated 429 retry storms.
 
 ## Build
 
 ```powershell
 cd D:\Kiro-Go
-go test ./proxy
+go test ./...
 go build -o kiro-go.exe .
 ```
 
@@ -26,7 +33,7 @@ Upload `kiro-go.exe` as a GitHub Release asset. Do not commit it to git because 
 Recommended release name:
 
 ```text
-Kiro-Go 1.1.3 - Claude Desktop stability fix
+Kiro-Go 1.1.3 Claude Desktop Stability Fix
 ```
 
 ## Safety Notes

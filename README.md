@@ -10,6 +10,22 @@ Convert Kiro accounts to OpenAI / Anthropic compatible API service.
 
 If this project helps you, a Star would mean a lot.
 
+## About This Fork
+
+This fork tracks Kiro-Go and focuses on a Claude Desktop / Claude Code gateway use case.
+The `v1.1.3-claude-fix` release adds stability fixes for long coding-agent sessions:
+
+- Filters polluted assistant history that replays fake `Tool results:` / `[Read]` text instead of making real tool calls.
+- Reduces unnecessary second confirmations after the user has already said `continue`, `yes`, or `do it`.
+- Raises upstream streaming timeout for large-context sessions.
+- Preserves image-bearing `tool_result` payloads where Claude Desktop still needs structured context.
+- Adds per-account in-flight request tracking so concurrent requests prefer idle accounts instead of overloading one account and triggering 429 retry storms.
+
+Original upstream project: [Quorinex/Kiro-Go](https://github.com/Quorinex/Kiro-Go).
+
+For the Windows build used with Claude Desktop, download the latest zip from:
+[Kiro-Go-Claude Releases](https://github.com/dgy-github/Kiro-Go-Claude/releases).
+
 ## Features
 
 - Anthropic `/v1/messages` & OpenAI `/v1/chat/completions`
@@ -24,8 +40,8 @@ If this project helps you, a Star would mean a lot.
 ### Docker Compose (Recommended)
 
 ```bash
-git clone https://github.com/Quorinex/Kiro-Go.git
-cd Kiro-Go
+git clone https://github.com/dgy-github/Kiro-Go-Claude.git
+cd Kiro-Go-Claude
 mkdir -p data
 docker-compose up -d
 ```
@@ -45,11 +61,21 @@ docker run -d \
 ### Build from Source
 
 ```bash
-git clone https://github.com/Quorinex/Kiro-Go.git
-cd Kiro-Go
+git clone https://github.com/dgy-github/Kiro-Go-Claude.git
+cd Kiro-Go-Claude
 go build -o kiro-go .
 ./kiro-go
 ```
+
+### Windows Claude Desktop Build
+
+Download `kiro-go-1.1.3-claude-fix-windows-amd64.zip` from the release page, unzip it, then run:
+
+```powershell
+.\start-kiro-go-claude.bat
+```
+
+The release zip intentionally does not include `data/config.json`, logs, account tokens, or local credential cache files.
 
 ### Deploy on Zeabur
 

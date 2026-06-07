@@ -10,6 +10,22 @@
 
 如果这个项目帮到了你，欢迎点个 Star 支持一下。
 
+## 关于这个 Fork
+
+这个 fork 基于 Kiro-Go，重点面向 Claude Desktop / Claude Code 作为网关使用的场景。
+`v1.1.3-claude-fix` 版本主要修复长时间 coding-agent 会话里的稳定性问题：
+
+- 过滤被污染的 assistant 历史，避免模型把假的 `Tool results:` / `[Read]` 文本当成真实工具结果反复复读。
+- 用户已经说 `继续` / `可以` / `确定` / `直接做` 后，减少二次确认和只写计划不执行的问题。
+- 将上游流式请求超时时间调高，缓解大上下文会话中途断流。
+- 保留带图片的当前 `tool_result` 结构化内容，避免 Claude Desktop 丢上下文。
+- 增加账号池 in-flight 并发占用跟踪，让并发请求优先选择空闲账号，降低同一个账号被打爆后触发 429 重试风暴的概率。
+
+原始上游项目：[Quorinex/Kiro-Go](https://github.com/Quorinex/Kiro-Go)。
+
+如果用于 Windows + Claude Desktop，建议直接下载 Release：
+[Kiro-Go-Claude Releases](https://github.com/dgy-github/Kiro-Go-Claude/releases)。
+
 ## 功能特性
 
 - Anthropic `/v1/messages` 与 OpenAI `/v1/chat/completions`
@@ -24,8 +40,8 @@
 ### Docker Compose（推荐）
 
 ```bash
-git clone https://github.com/Quorinex/Kiro-Go.git
-cd Kiro-Go
+git clone https://github.com/dgy-github/Kiro-Go-Claude.git
+cd Kiro-Go-Claude
 mkdir -p data
 docker-compose up -d
 ```
@@ -45,11 +61,21 @@ docker run -d \
 ### 源码编译
 
 ```bash
-git clone https://github.com/Quorinex/Kiro-Go.git
-cd Kiro-Go
+git clone https://github.com/dgy-github/Kiro-Go-Claude.git
+cd Kiro-Go-Claude
 go build -o kiro-go .
 ./kiro-go
 ```
+
+### Windows Claude Desktop 构建版
+
+从 Release 页面下载 `kiro-go-1.1.3-claude-fix-windows-amd64.zip`，解压后运行：
+
+```powershell
+.\start-kiro-go-claude.bat
+```
+
+发布压缩包不会包含 `data/config.json`、日志、账号 token 或本地凭证缓存文件。
 
 ### 部署到 Zeabur
 

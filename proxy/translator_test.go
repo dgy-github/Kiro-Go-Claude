@@ -439,6 +439,82 @@ func TestFileBackedWorkDoesNotTriggerForConceptQuestion(t *testing.T) {
 	}
 }
 
+func TestPendingToolIntentSynthesizesReadFromPreviousAssistantPlan(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeReadTool(), testClaudeExecCommandTool()},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "设计是我主导的"},
+			{Role: "assistant", Content: "先读 docs/multi-agent-framework-v5.md，把设计 why 提炼出来。"},
+			{Role: "user", Content: "先读"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract == nil || !payload.ToolContract.RequiresTool {
+		t.Fatalf("expected pending tool intent to require tool use")
+	}
+	if payload.ToolContract.Source != "pending-tool-intent" {
+		t.Fatalf("expected pending-tool-intent source, got %q", payload.ToolContract.Source)
+	}
+	if payload.ToolContract.Mode != toolContractModeSyntheticToolUse {
+		t.Fatalf("expected synthetic read mode, got %q", payload.ToolContract.Mode)
+	}
+	tu := payload.ToolContract.SyntheticToolUse
+	if tu == nil {
+		t.Fatalf("expected synthetic read tool use")
+	}
+	if tu.Name != "read" {
+		t.Fatalf("expected read tool, got %q", tu.Name)
+	}
+	if got := tu.Input["path"]; got != "docs/multi-agent-framework-v5.md" {
+		t.Fatalf("expected planned file path, got %#v", got)
+	}
+}
+
+func TestPendingToolIntentRequiresUpstreamToolWhenNoSafeReadSynthesis(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeExecCommandTool()},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "看下为什么又卡住"},
+			{Role: "assistant", Content: "先读 docs/multi-agent-framework-v5.md，把设计 why 提炼出来。"},
+			{Role: "user", Content: "继续"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract == nil || !payload.ToolContract.RequiresTool {
+		t.Fatalf("expected pending tool intent contract")
+	}
+	if payload.ToolContract.Source != "pending-tool-intent" {
+		t.Fatalf("expected pending-tool-intent source, got %q", payload.ToolContract.Source)
+	}
+	if payload.ToolContract.Mode != toolContractModeRequireUpstreamTool {
+		t.Fatalf("expected upstream-required mode, got %q", payload.ToolContract.Mode)
+	}
+	if payload.ToolContract.SyntheticToolUse != nil {
+		t.Fatalf("shell-only pending read should not synthesize a risky command")
+	}
+}
+
+func TestPendingToolIntentDoesNotTriggerForConceptContinuation(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeReadTool(), testClaudeExecCommandTool()},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "解释 RAG"},
+			{Role: "assistant", Content: "这个概念可以分三层讲。"},
+			{Role: "user", Content: "继续"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract != nil {
+		t.Fatalf("concept continuation should not require tool use")
+	}
+}
+
 func TestSyntheticReadToolUsesFilePathSchemaKey(t *testing.T) {
 	tool := testClaudeReadTool()
 	tool.InputSchema = map[string]interface{}{

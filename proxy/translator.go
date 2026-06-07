@@ -599,11 +599,14 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 	delegatedExecution := isDelegatedExecutionRequest(currentLower)
 	localLocationLookup := isLocalLocationLookupRequest(currentLower)
 	fileBackedWork := isExplicitFileBackedWorkRequest(currentLower)
+	pendingToolIntent := isPendingToolIntentContinuation(currentUser, previousAssistant) &&
+		hasLikelyPendingToolCandidate(previousAssistant, tools)
 	interesting := isContinuationAck(currentLower) ||
 		isReadonlyInspectionRequest(currentLower) ||
 		delegatedExecution ||
 		localLocationLookup ||
 		fileBackedWork ||
+		pendingToolIntent ||
 		mentionsGitStatus(previousLower) ||
 		mentionsGitRepoAudit(previousLower)
 	if len(available) == 0 {
@@ -634,6 +637,8 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 	source := ""
 	if isReadonlyInspectionRequest(currentLower) {
 		source = "readonly-inspection"
+	} else if pendingToolIntent {
+		source = "pending-tool-intent"
 	} else if shouldForceToolUseAfterContinuation(currentUser, previousAssistant) {
 		source = "authorized-continuation"
 	}
@@ -675,6 +680,16 @@ func buildToolContract(toolChoice interface{}, currentUser, previousAssistant st
 	}
 	syntheticToolUse := synthesizeSafeToolUse(currentUser, previousAssistant, source, tools)
 	if syntheticToolUse == nil {
+		if source == "pending-tool-intent" {
+			contract := &ToolContract{
+				RequiresTool:   true,
+				Source:         source,
+				Mode:           toolContractModeRequireUpstreamTool,
+				AvailableTools: available,
+			}
+			logToolContractDecision("created", currentLower, previousLower, available, contract)
+			return contract
+		}
 		logToolContractDecision("no-synthetic-tool", currentLower, previousLower, available, nil)
 		return nil
 	}
@@ -794,11 +809,36 @@ func synthesizeSafeToolUse(currentUser, previousAssistant, source string, tools 
 	switch source {
 	case "readonly-inspection":
 		return synthesizeReadonlyFileToolUse(currentUser, source, tools)
+	case "pending-tool-intent":
+		if tu := synthesizePendingToolIntentToolUse(previousAssistant, tools); tu != nil {
+			return tu
+		}
+		return synthesizeSafeContinuationToolUse(currentUser, previousAssistant, tools)
 	case "authorized-continuation":
 		return synthesizeSafeContinuationToolUse(currentUser, previousAssistant, tools)
 	default:
 		return nil
 	}
+}
+
+func synthesizePendingToolIntentToolUse(previousAssistant string, tools []KiroToolWrapper) *KiroToolUse {
+	path := extractLikelyFilePath(previousAssistant)
+	if path == "" {
+		return nil
+	}
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.ToolSpecification.Name)
+		if !isReadLikeToolName(name) {
+			continue
+		}
+		inputKey := chooseFilePathInputKey(tool)
+		return &KiroToolUse{
+			ToolUseID: "toolu_kiro_go_" + strings.ReplaceAll(uuid.New().String(), "-", ""),
+			Name:      name,
+			Input:     map[string]interface{}{inputKey: path},
+		}
+	}
+	return nil
 }
 
 func synthesizeReadonlyFileToolUse(currentUser, source string, tools []KiroToolWrapper) *KiroToolUse {
@@ -862,6 +902,92 @@ func isContinuationAck(current string) bool {
 	default:
 		return false
 	}
+}
+
+func isPendingToolIntentContinuation(currentUser, previousAssistant string) bool {
+	current := strings.TrimSpace(strings.ToLower(currentUser))
+	previous := strings.TrimSpace(strings.ToLower(previousAssistant))
+	if current == "" || previous == "" {
+		return false
+	}
+	if !isShortToolActionConfirmation(current) {
+		return false
+	}
+	return assistantPromisedToolWork(previous)
+}
+
+func isShortToolActionConfirmation(current string) bool {
+	current = strings.TrimSpace(strings.ToLower(current))
+	if current == "" {
+		return false
+	}
+	for _, marker := range []string{"?", "？", "什么", "为何", "为什么", "怎么理解", "啥意思", "什么意思"} {
+		if strings.Contains(current, marker) {
+			return false
+		}
+	}
+	if isContinuationAck(current) {
+		return true
+	}
+	if len([]rune(current)) > 24 {
+		return false
+	}
+	for _, marker := range []string{
+		"先读", "读吧", "读一下", "读取", "先看", "看吧", "查吧", "查一下",
+		"开始", "执行", "跑吧", "跑一下", "按你说的", "按这个来", "处理",
+		"go ahead", "do it", "read it", "read first", "continue",
+	} {
+		if strings.Contains(current, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func assistantPromisedToolWork(previous string) bool {
+	if previous == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"先读", "读取", "读全文", "打开", "查看", "扫描", "检查", "验证",
+		"看日志", "查日志", "grep", "rg ", "read ", "read`", "inspect",
+		"执行", "运行", "跑 ", "跑`", "bash", "shell", "调用工具", "tool_use",
+	} {
+		if strings.Contains(previous, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasLikelyPendingToolCandidate(previousAssistant string, tools []KiroToolWrapper) bool {
+	previous := strings.ToLower(previousAssistant)
+	if previous == "" || len(tools) == 0 {
+		return false
+	}
+	hasReadTool := false
+	hasShellTool := false
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.ToolSpecification.Name)
+		if isReadLikeToolName(name) {
+			hasReadTool = true
+		}
+		if isShellLikeToolName(name) {
+			hasShellTool = true
+		}
+	}
+	if extractLikelyFilePath(previousAssistant) != "" {
+		return hasReadTool || hasShellTool
+	}
+	if mentionsGitStatus(previous) || mentionsGitRepoAudit(previous) {
+		return hasShellTool
+	}
+	for _, marker := range []string{"grep", "rg ", "bash", "shell", "执行", "运行", "跑 "} {
+		if strings.Contains(previous, marker) {
+			return hasShellTool
+		}
+	}
+	return false
 }
 
 func mentionsGitStatus(text string) bool {

@@ -68,6 +68,15 @@ const minRecentHistoryTurns = 4
 const compactionSummaryMaxChars = 6000
 const compactionSnippetMaxChars = 500
 
+type payloadTruncationOptions struct {
+	// RequestOnlySummary means Kiro-Go is only guarding the upstream request
+	// size. Persistent transcript compaction is owned by Claude Code's native
+	// /compact flow, so avoid adding a second rich summary into the forwarded
+	// context while native compact is active or just finished.
+	RequestOnlySummary bool
+	Reason             string
+}
+
 // ParseModelAndThinking resolves a client-supplied model name to a Kiro model ID
 // and reports whether thinking mode was requested via the configured suffix.
 func ParseModelAndThinking(model string, thinkingSuffix string) (string, bool) {
@@ -201,6 +210,10 @@ type ClaudeUsage struct {
 const maxToolDescLen = 10237
 
 func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
+	return ClaudeToKiroWithTruncation(req, thinking, payloadTruncationOptions{})
+}
+
+func ClaudeToKiroWithTruncation(req *ClaudeRequest, thinking bool, truncation payloadTruncationOptions) *KiroPayload {
 	modelID := MapModel(req.Model)
 	origin := "AI_EDITOR"
 
@@ -349,7 +362,7 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 		}
 	}
 
-	truncatePayloadToLimit(payload, systemPrompt != "")
+	truncatePayloadToLimitWithOptions(payload, systemPrompt != "", truncation)
 
 	return payload
 }
@@ -2454,6 +2467,10 @@ func sanitizeKiroHistory(history []KiroHistoryMessage, currentToolResultIDs map[
 // turns were removed so the model is aware context was elided. hasPriming
 // indicates whether history begins with the 2-entry system priming pair.
 func truncatePayloadToLimit(payload *KiroPayload, hasPriming bool) {
+	truncatePayloadToLimitWithOptions(payload, hasPriming, payloadTruncationOptions{})
+}
+
+func truncatePayloadToLimitWithOptions(payload *KiroPayload, hasPriming bool, opts payloadTruncationOptions) {
 	if payload == nil {
 		return
 	}
@@ -2471,6 +2488,8 @@ func truncatePayloadToLimit(payload *KiroPayload, hasPriming bool) {
 
 	priming := history[:primingCount]
 	conversation := history[primingCount:]
+	currentToolResultIDs := currentStructuredToolResultIDsFromPayload(payload)
+	activeToolIdx := activeToolAssistantIndex(conversation, currentToolResultIDs)
 
 	// Compute the fixed overhead (everything except the trimmable conversation):
 	// priming, current message, inference config, profileArn, etc. We estimate by
@@ -2508,12 +2527,16 @@ func truncatePayloadToLimit(payload *KiroPayload, hasPriming bool) {
 	}
 
 	tail := conversation[keepFrom:]
-	tail = dropLeadingAssistant(tail)
+	if activeToolIdx >= 0 && keepFrom > activeToolIdx {
+		keepFrom = activeToolIdx
+		tail = conversation[keepFrom:]
+	}
+	tail = dropLeadingAssistantUnlessActive(tail, currentToolResultIDs)
 
 	rebuilt := make([]KiroHistoryMessage, 0, len(priming)+1+len(tail))
 	rebuilt = append(rebuilt, priming...)
 	if keepFrom > 0 { // older turns were dropped → note the elision
-		rebuilt = append(rebuilt, buildCompactionSummaryEntry(conversation[:keepFrom], currentMessageModelID(payload)))
+		rebuilt = append(rebuilt, buildCompactionSummaryEntry(conversation[:keepFrom], currentMessageModelID(payload), opts))
 	}
 	rebuilt = append(rebuilt, tail...)
 	payload.ConversationState.History = rebuilt
@@ -2531,7 +2554,7 @@ func truncatePayloadToLimit(payload *KiroPayload, hasPriming bool) {
 			payload.ConversationState.History[:tailStart],
 			payload.ConversationState.History[tailStart+1:]...,
 		)
-		tail = dropLeadingAssistant(payload.ConversationState.History[tailStart:])
+		tail = dropLeadingAssistantUnlessActive(payload.ConversationState.History[tailStart:], currentToolResultIDs)
 		payload.ConversationState.History = append(payload.ConversationState.History[:tailStart], tail...)
 	}
 
@@ -2552,8 +2575,8 @@ func truncatePayloadToLimit(payload *KiroPayload, hasPriming bool) {
 	)
 }
 
-func buildCompactionSummaryEntry(dropped []KiroHistoryMessage, modelID string) KiroHistoryMessage {
-	content := buildCompactionSummary(dropped)
+func buildCompactionSummaryEntry(dropped []KiroHistoryMessage, modelID string, opts payloadTruncationOptions) KiroHistoryMessage {
+	content := buildCompactionSummary(dropped, opts)
 	if strings.TrimSpace(content) == "" {
 		content = truncationPlaceholder
 	}
@@ -2566,23 +2589,44 @@ func buildCompactionSummaryEntry(dropped []KiroHistoryMessage, modelID string) K
 	}
 }
 
-func buildCompactionSummary(dropped []KiroHistoryMessage) string {
+func buildCompactionSummary(dropped []KiroHistoryMessage, opts payloadTruncationOptions) string {
 	if len(dropped) == 0 {
 		return ""
 	}
 
 	userTurns := 0
 	assistantTurns := 0
-	snippets := make([]string, 0, 18)
 	for _, h := range dropped {
 		if h.UserInputMessage != nil {
 			userTurns++
+		}
+		if h.AssistantResponseMessage != nil {
+			assistantTurns++
+		}
+	}
+
+	if opts.RequestOnlySummary {
+		reason := strings.TrimSpace(opts.Reason)
+		if reason == "" {
+			reason = "native Claude compact coordination"
+		}
+		return fmt.Sprintf(
+			"[Kiro-Go request-size guard omitted earlier history before forwarding upstream. This is request-only truncation, not persistent Claude transcript compaction. Persistent session compaction is owned by Claude Code /compact. Dropped history entries: %d; user turns: %d; assistant turns: %d; reason: %s.]",
+			len(dropped),
+			userTurns,
+			assistantTurns,
+			reason,
+		)
+	}
+
+	snippets := make([]string, 0, 18)
+	for _, h := range dropped {
+		if h.UserInputMessage != nil {
 			if s := compactHistorySnippet("User", h.UserInputMessage.Content); s != "" {
 				snippets = append(snippets, s)
 			}
 		}
 		if h.AssistantResponseMessage != nil {
-			assistantTurns++
 			if s := compactHistorySnippet("Assistant", h.AssistantResponseMessage.Content); s != "" {
 				snippets = append(snippets, s)
 			}
@@ -2654,6 +2698,55 @@ func dropLeadingAssistant(tail []KiroHistoryMessage) []KiroHistoryMessage {
 		tail = tail[1:]
 	}
 	return tail
+}
+
+func dropLeadingAssistantUnlessActive(tail []KiroHistoryMessage, currentToolResultIDs map[string]bool) []KiroHistoryMessage {
+	for len(tail) > 0 && tail[0].AssistantResponseMessage != nil {
+		if assistantToolUsesMatchIDs(tail[0].AssistantResponseMessage.ToolUses, currentToolResultIDs) {
+			return tail
+		}
+		tail = tail[1:]
+	}
+	return tail
+}
+
+func currentStructuredToolResultIDsFromPayload(payload *KiroPayload) map[string]bool {
+	if payload == nil {
+		return nil
+	}
+	ctx := payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext
+	if ctx == nil || len(ctx.ToolResults) == 0 {
+		return nil
+	}
+	return collectToolResultIDs(ctx.ToolResults)
+}
+
+func activeToolAssistantIndex(history []KiroHistoryMessage, currentToolResultIDs map[string]bool) int {
+	if len(history) == 0 || len(currentToolResultIDs) == 0 {
+		return -1
+	}
+	lastIdx := len(history) - 1
+	last := history[lastIdx]
+	if last.AssistantResponseMessage == nil {
+		return -1
+	}
+	if assistantToolUsesMatchIDs(last.AssistantResponseMessage.ToolUses, currentToolResultIDs) {
+		return lastIdx
+	}
+	return -1
+}
+
+func assistantToolUsesMatchIDs(toolUses []KiroToolUse, ids map[string]bool) bool {
+	if len(toolUses) == 0 || len(ids) == 0 || len(toolUses) != len(ids) {
+		return false
+	}
+	for _, tu := range toolUses {
+		id := strings.TrimSpace(tu.ToolUseID)
+		if id == "" || !ids[id] {
+			return false
+		}
+	}
+	return true
 }
 
 // payloadByteSize returns the serialized size of the payload in bytes.

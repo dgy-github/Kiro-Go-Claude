@@ -25,6 +25,9 @@ The `v1.1.3-claude-fix` release adds stability fixes for long coding-agent sessi
 - Adds a pending-tool-intent contract: if the previous assistant turn already promised tool-backed work and the user replies with a short confirmation such as "continue" or "read first", the gateway routes the turn to real tool use instead of another prose placeholder.
 - Repairs assistant-side tool-plan placeholders: if upstream starts a turn with text such as "I will grep/read first" instead of a structured tool call, the gateway holds that text, retries once with a tool contract, and only releases the repaired `tool_use`.
 - Retries the next upstream endpoint when a stream breaks before any assistant text or tool call is emitted, reducing surfaced `stream ID ... INTERNAL_ERROR` failures.
+- Coordinates Claude Code native `/compact` with Kiro-Go request-size guarding so long sessions do not get double-summarized or lose active `tool_use` / `tool_result` context.
+- Adds cross-protocol active tool-turn checks for Anthropic `/v1/messages`, OpenAI `/v1/chat/completions`, and Responses `/v1/responses`.
+- Classifies upstream 400/413 payload or protocol errors as non-retryable, avoiding endpoint retry storms when the same malformed request would fail everywhere.
 
 Original upstream project: [Quorinex/Kiro-Go](https://github.com/Quorinex/Kiro-Go).
 
@@ -77,7 +80,7 @@ go build -o kiro-go .
 
 ### Windows Claude Desktop Build
 
-Download `kiro-go-1.1.3-claude-fix-windows-amd64.zip` from the release page, unzip it, then run:
+Download `kiro-go-v1.1.3-claude-fix.7-windows-amd64.zip` from the release page, unzip it, then run:
 
 ```powershell
 .\start-kiro-go-claude.bat

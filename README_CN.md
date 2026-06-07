@@ -77,7 +77,7 @@ go build -o kiro-go .
 
 ### Windows Claude Desktop 构建版
 
-从 Release 页面下载 `kiro-go-1.1.3-claude-fix-windows-amd64.zip`，解压后运行：
+从 Release 页面下载 `kiro-go-v1.1.3-claude-fix.7-windows-amd64.zip`，解压后运行：
 
 ```powershell
 .\start-kiro-go-claude.bat

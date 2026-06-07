@@ -15,35 +15,68 @@ import (
 
 const claudeNativeCompactTailBytes = 512 * 1024
 
-func (h *Handler) maybeTriggerClaudeNativeCompact(req *ClaudeRequest, rawBodyBytes int, estimatedTokens int) {
+type claudeNativeCompactCoordination struct {
+	Enabled       bool
+	Triggered     bool
+	InFlight      bool
+	RecentSuccess bool
+}
+
+func (s claudeNativeCompactCoordination) payloadTruncationOptions() payloadTruncationOptions {
+	if !s.Enabled || (!s.Triggered && !s.InFlight && !s.RecentSuccess) {
+		return payloadTruncationOptions{}
+	}
+	reasons := make([]string, 0, 3)
+	if s.Triggered {
+		reasons = append(reasons, "native compact triggered")
+	}
+	if s.InFlight {
+		reasons = append(reasons, "native compact in flight")
+	}
+	if s.RecentSuccess {
+		reasons = append(reasons, "native compact cooldown")
+	}
+	return payloadTruncationOptions{
+		RequestOnlySummary: true,
+		Reason:             strings.Join(reasons, ", "),
+	}
+}
+
+func (h *Handler) maybeTriggerClaudeNativeCompact(req *ClaudeRequest, rawBodyBytes int, estimatedTokens int) claudeNativeCompactCoordination {
 	cfg := config.GetClaudeNativeCompactConfig()
+	status := claudeNativeCompactCoordination{Enabled: cfg.Enabled}
 	if !cfg.Enabled {
-		return
+		return status
 	}
 	if isClaudeNativeCompactRequest(req) {
-		return
+		return status
 	}
 
 	bodyTooLarge := cfg.BodyThresholdKB > 0 && rawBodyBytes >= cfg.BodyThresholdKB*1024
 	tokensTooLarge := cfg.TokenThreshold > 0 && estimatedTokens >= cfg.TokenThreshold
-	if !bodyTooLarge && !tokensTooLarge {
-		return
-	}
 
 	h.compactMu.Lock()
+	cooldown := time.Duration(cfg.CooldownSeconds) * time.Second
+	status.InFlight = h.compactInFlight
+	status.RecentSuccess = !h.lastCompactAt.IsZero() && cooldown > 0 && time.Since(h.lastCompactAt) < cooldown
+	if !bodyTooLarge && !tokensTooLarge {
+		h.compactMu.Unlock()
+		return status
+	}
 	if h.compactInFlight {
 		h.compactMu.Unlock()
 		logger.Infof("[ClaudeCompact] skip: already running")
-		return
+		return status
 	}
-	cooldown := time.Duration(cfg.CooldownSeconds) * time.Second
-	if !h.lastCompactAt.IsZero() && cooldown > 0 && time.Since(h.lastCompactAt) < cooldown {
+	if status.RecentSuccess {
 		remaining := cooldown - time.Since(h.lastCompactAt)
 		h.compactMu.Unlock()
 		logger.Infof("[ClaudeCompact] skip: cooldown remaining=%s", remaining.Round(time.Second))
-		return
+		return status
 	}
 	h.compactInFlight = true
+	status.Triggered = true
+	status.InFlight = true
 	h.compactMu.Unlock()
 
 	logger.Infof("[ClaudeCompact] trigger body=%d tokens=%d bodyThresholdKB=%d tokenThreshold=%d", rawBodyBytes, estimatedTokens, cfg.BodyThresholdKB, cfg.TokenThreshold)
@@ -63,6 +96,7 @@ func (h *Handler) maybeTriggerClaudeNativeCompact(req *ClaudeRequest, rawBodyByt
 		}
 		logger.Infof("[ClaudeCompact] done after=%s body=%d tokens=%d", time.Since(started).Round(time.Millisecond), rawBodyBytes, estimatedTokens)
 	}()
+	return status
 }
 
 func isClaudeNativeCompactRequest(req *ClaudeRequest) bool {

@@ -814,10 +814,10 @@ func (h *Handler) handleClaudeMessagesInternal(w http.ResponseWriter, r *http.Re
 	thinkingResponseOpts := resolveClaudeThinkingResponseOptions(req.Thinking, thinkingCfg.ClaudeFormat)
 	estimatedInputTokens := estimateClaudeRequestInputTokens(effectiveReq)
 	cacheProfile := h.promptCache.BuildClaudeProfile(effectiveReq, estimatedInputTokens)
-	h.maybeTriggerClaudeNativeCompact(effectiveReq, len(body), estimatedInputTokens)
+	compactCoordination := h.maybeTriggerClaudeNativeCompact(effectiveReq, len(body), estimatedInputTokens)
 
 	// 转换请求
-	kiroPayload := ClaudeToKiro(&req, thinking)
+	kiroPayload := ClaudeToKiroWithTruncation(&req, thinking, compactCoordination.payloadTruncationOptions())
 
 	// Stream or non-stream
 	apiKeyID := apiKeyIDFromContext(r.Context())

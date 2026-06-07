@@ -402,6 +402,58 @@ func TestCallKiroAPIReturnsQuotaErrorWhenAllAttemptedEndpoints429(t *testing.T) 
 	}
 }
 
+func TestCallKiroAPIDoesNotRetryNonRetryable400(t *testing.T) {
+	resetEndpointCooldownsForTest()
+	t.Cleanup(resetEndpointCooldownsForTest)
+
+	cfgFile := t.TempDir() + "/config.json"
+	if err := config.Init(cfgFile); err != nil {
+		t.Fatalf("config.Init: %v", err)
+	}
+	if err := config.UpdatePreferredEndpoint("kiro"); err != nil {
+		t.Fatalf("set endpoint: %v", err)
+	}
+	if err := config.UpdateEndpointFallback(true); err != nil {
+		t.Fatalf("enable endpoint fallback: %v", err)
+	}
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, `{"message":"Improperly formed request."}`, http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	oldEndpoints := kiroEndpoints
+	kiroEndpoints = []kiroEndpoint{
+		{URL: server.URL + "/first", Origin: "AI_EDITOR", Name: "first-400"},
+		{URL: server.URL + "/second", Origin: "AI_EDITOR", Name: "second-should-not-run"},
+	}
+	t.Cleanup(func() { kiroEndpoints = oldEndpoints })
+
+	oldClient := kiroHttpStore.Load()
+	kiroHttpStore.Store(&http.Client{Timeout: time.Second, Transport: &http.Transport{}})
+	t.Cleanup(func() { kiroHttpStore.Store(oldClient) })
+
+	err := CallKiroAPI(&config.Account{
+		ID:          "protocol-account",
+		Email:       "protocol@example.com",
+		AccessToken: "token-test",
+		ProfileArn:  "arn:aws:codewhisperer:profile/test",
+	}, testKiroPayload(), &KiroStreamCallback{})
+
+	var httpErr *kiroHTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("expected kiroHTTPError, got %T %v", err, err)
+	}
+	if httpErr.Retryable || httpErr.Kind != kiroHTTPFailureProtocol {
+		t.Fatalf("expected non-retryable protocol error, got %#v", httpErr)
+	}
+	if requests != 1 {
+		t.Fatalf("expected only one endpoint attempt for protocol 400, got %d", requests)
+	}
+}
+
 func TestCallKiroAPIReturnsCooldownErrorWithoutSendingWhenEndpointCooling(t *testing.T) {
 	resetEndpointCooldownsForTest()
 	t.Cleanup(resetEndpointCooldownsForTest)

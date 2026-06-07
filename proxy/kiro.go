@@ -36,6 +36,61 @@ type kiroEndpoint struct {
 	Name      string
 }
 
+type kiroHTTPFailureKind string
+
+const (
+	kiroHTTPFailureProtocol    kiroHTTPFailureKind = "payload_or_protocol"
+	kiroHTTPFailureAuth        kiroHTTPFailureKind = "auth"
+	kiroHTTPFailurePayment     kiroHTTPFailureKind = "payment"
+	kiroHTTPFailureTransient   kiroHTTPFailureKind = "transient"
+	kiroHTTPFailureClientOther kiroHTTPFailureKind = "client_other"
+)
+
+type kiroHTTPError struct {
+	StatusCode int
+	Endpoint   string
+	Body       string
+	Kind       kiroHTTPFailureKind
+	Retryable  bool
+}
+
+func (e *kiroHTTPError) Error() string {
+	if e == nil {
+		return ""
+	}
+	body := compactLogSnippet(e.Body, 500)
+	if body == "" {
+		body = "<empty>"
+	}
+	return fmt.Sprintf("HTTP %d from %s (%s, retryable=%v): %s", e.StatusCode, e.Endpoint, e.Kind, e.Retryable, body)
+}
+
+func classifyKiroHTTPError(statusCode int, endpointName string, body []byte) *kiroHTTPError {
+	kind := kiroHTTPFailureClientOther
+	retryable := false
+	bodyText := strings.TrimSpace(string(body))
+
+	switch {
+	case statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden:
+		kind = kiroHTTPFailureAuth
+	case statusCode == http.StatusPaymentRequired:
+		kind = kiroHTTPFailurePayment
+	case statusCode == http.StatusBadRequest || statusCode == http.StatusRequestEntityTooLarge:
+		kind = kiroHTTPFailureProtocol
+	case statusCode == http.StatusRequestTimeout || statusCode == http.StatusConflict || statusCode == http.StatusTooEarly || statusCode >= 500:
+		kind = kiroHTTPFailureTransient
+		retryable = true
+	}
+
+	return &kiroHTTPError{
+		StatusCode: statusCode,
+		Endpoint:   endpointName,
+		Body:       bodyText,
+		Kind:       kind,
+		Retryable:  retryable,
+	}
+}
+
 var kiroEndpoints = []kiroEndpoint{
 	{
 		URL:       "https://q.us-east-1.amazonaws.com/generateAssistantResponse",
@@ -453,18 +508,17 @@ func CallKiroAPI(account *config.Account, payload *KiroPayload, callback *KiroSt
 			errBody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			cancelReq()
-			lastErr = fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, ep.Name, string(errBody))
+			httpErr := classifyKiroHTTPError(resp.StatusCode, ep.Name, errBody)
+			lastErr = httpErr
 			if resp.StatusCode == 400 {
 				logger.Warnf("[KiroAPI] 400 diagnostic: %s", formatKiroPayloadDiagnostics(payload, ep.Name, len(reqBody)))
 			}
-			// Authentication errors and payment errors are not retried across endpoints.
-			if resp.StatusCode == 401 || resp.StatusCode == 403 || resp.StatusCode == 402 {
-				return lastErr
+			if !httpErr.Retryable {
+				logger.Warnf("[KiroAPI] trace=%s Endpoint %s non-retryable error: %v", traceID, ep.Name, httpErr)
+				return httpErr
 			}
 			nonQuotaFailure = true
-			if resp.StatusCode >= 500 {
-				recordKiroEndpointTransientFailure(account, ep, lastErr)
-			}
+			recordKiroEndpointTransientFailure(account, ep, lastErr)
 			logger.Warnf("[KiroAPI] trace=%s Endpoint %s error: %v", traceID, ep.Name, lastErr)
 			continue
 		}

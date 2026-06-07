@@ -181,6 +181,43 @@ func TestClaudeContinuationAfterGitStatusPlanSynthesizesCommand(t *testing.T) {
 	}
 }
 
+func TestClaudeContinuationAfterRepoAuditPlanSynthesizesReadonlyAuditCommand(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeExecCommandTool()},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "A"},
+			{Role: "assistant", Content: "执行侦察：确认 git toplevel、D:\\agent_prac\\nanocodex 内有无独立 .git、有无敏感文件。"},
+			{Role: "user", Content: "继续"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract == nil || payload.ToolContract.SyntheticToolUse == nil {
+		t.Fatalf("expected synthetic repo audit command")
+	}
+	if payload.ToolContract.Mode != toolContractModeSyntheticToolUse {
+		t.Fatalf("expected synthetic tool contract mode, got %q", payload.ToolContract.Mode)
+	}
+	tu := payload.ToolContract.SyntheticToolUse
+	cmd, _ := tu.Input["cmd"].(string)
+	for _, want := range []string{
+		"$repo = 'D:\\agent_prac\\nanocodex'",
+		"Test-Path -LiteralPath (Join-Path $repo '.git')",
+		"git -C $repo rev-parse --show-toplevel",
+		"git -C $repo status --short --branch",
+		"git -C $repo remote -v",
+		"ls-files --cached --others --exclude-standard",
+	} {
+		if !strings.Contains(cmd, want) {
+			t.Fatalf("expected repo audit command to contain %q, got %q", want, cmd)
+		}
+	}
+	if got := tu.Input["description"]; got != "Inspect git repository status and sensitive filename candidates" {
+		t.Fatalf("expected repo audit description, got %#v", got)
+	}
+}
+
 func TestClaudeContinuationAfterGitStatusPlanWithoutShellToolDoesNotCreateContract(t *testing.T) {
 	req := &ClaudeRequest{
 		Model: "claude-opus-4.8",

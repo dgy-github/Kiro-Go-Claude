@@ -575,7 +575,7 @@ func shouldForceToolUseAfterContinuation(currentUser, previousAssistant string) 
 	if prev == "" {
 		return false
 	}
-	if mentionsGitStatus(prev) {
+	if mentionsGitStatus(prev) || mentionsGitRepoAudit(prev) {
 		return true
 	}
 	for _, marker := range []string{
@@ -747,7 +747,7 @@ func synthesizeReadonlyFileToolUse(currentUser, source string, tools []KiroToolW
 func synthesizeSafeContinuationToolUse(currentUser, previousAssistant string, tools []KiroToolWrapper) *KiroToolUse {
 	current := strings.ToLower(strings.TrimSpace(currentUser))
 	previous := strings.ToLower(previousAssistant)
-	if !isContinuationAck(current) || !mentionsGitStatus(previous) {
+	if !isContinuationAck(current) || (!mentionsGitStatus(previous) && !mentionsGitRepoAudit(previous)) {
 		return nil
 	}
 	for _, tool := range tools {
@@ -756,9 +756,15 @@ func synthesizeSafeContinuationToolUse(currentUser, previousAssistant string, to
 			continue
 		}
 		inputKey := chooseCommandInputKey(tool)
-		input := map[string]interface{}{inputKey: "git status --short --branch"}
+		command := "git status --short --branch"
+		description := "Inspect git status"
+		if mentionsGitRepoAudit(previous) {
+			command = buildGitRepoAuditCommand(currentUser, previousAssistant)
+			description = "Inspect git repository status and sensitive filename candidates"
+		}
+		input := map[string]interface{}{inputKey: command}
 		if descKey := chooseCommandDescriptionKey(tool); descKey != "" {
-			input[descKey] = "Inspect git status"
+			input[descKey] = description
 		}
 		return &KiroToolUse{
 			ToolUseID: "toolu_kiro_go_" + strings.ReplaceAll(uuid.New().String(), "-", ""),
@@ -783,6 +789,32 @@ func mentionsGitStatus(text string) bool {
 	return strings.Contains(text, "git status") ||
 		strings.Contains(text, "git 状态") ||
 		strings.Contains(text, "git状态")
+}
+
+func mentionsGitRepoAudit(text string) bool {
+	text = strings.ToLower(text)
+	return strings.Contains(text, "git toplevel") ||
+		strings.Contains(text, ".git") ||
+		(strings.Contains(text, "git") && strings.Contains(text, "toplevel"))
+}
+
+func buildGitRepoAuditCommand(currentUser, previousAssistant string) string {
+	repo := extractLikelyDirectoryPath(previousAssistant)
+	if repo == "" {
+		repo = extractLikelyDirectoryPath(currentUser)
+	}
+	if repo == "" {
+		repo = "."
+	}
+	repo = strings.ReplaceAll(repo, "'", "''")
+	return "$repo = '" + repo + "'; " +
+		"Write-Output '== repo path =='; Write-Output $repo; " +
+		"Write-Output '== .git exists =='; Test-Path -LiteralPath (Join-Path $repo '.git'); " +
+		"Write-Output '== git toplevel =='; git -C $repo rev-parse --show-toplevel; " +
+		"Write-Output '== git status =='; git -C $repo status --short --branch; " +
+		"Write-Output '== git remote =='; git -C $repo remote -v; " +
+		"Write-Output '== suspicious tracked/untracked names =='; " +
+		"git -C $repo ls-files --cached --others --exclude-standard | Select-String -Pattern '(^|/)(\\.env|.*\\.(pem|key)|id_rsa|credentials|.*token.*|.*secret.*|config\\.toml)$'"
 }
 
 func isShellLikeToolName(name string) bool {
@@ -858,6 +890,26 @@ func extractLikelyFilePath(text string) string {
 	for _, re := range patterns {
 		if m := re.FindStringSubmatch(text); len(m) > 1 {
 			return strings.Trim(m[1], " \t\r\n，。；;：:()[]{}\"'")
+		}
+	}
+	return ""
+}
+
+func extractLikelyDirectoryPath(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)([A-Za-z]:[\\/][^\s，。；;'"<>]+)`),
+		regexp.MustCompile("`([^`]+)`"),
+	}
+	for _, re := range patterns {
+		if m := re.FindStringSubmatch(text); len(m) > 1 {
+			candidate := strings.Trim(m[1], " \t\r\n，。；;：:()[]{}\"'")
+			if candidate != "" && !strings.Contains(candidate, "\n") {
+				return candidate
+			}
 		}
 	}
 	return ""

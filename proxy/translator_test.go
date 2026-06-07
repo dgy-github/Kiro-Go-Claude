@@ -114,6 +114,7 @@ func TestOpenAIToKiroPreservesStructuredAssistantAndToolContent(t *testing.T) {
 func TestClaudeContinuationAfterReadPlanGetsToolUseNudge(t *testing.T) {
 	req := &ClaudeRequest{
 		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeReadTool()},
 		Messages: []ClaudeMessage{
 			{Role: "user", Content: "修一下"},
 			{Role: "assistant", Content: "先读 `_run_scheduled_turn` 全文，看何种结局怎么落地。"},
@@ -123,8 +124,11 @@ func TestClaudeContinuationAfterReadPlanGetsToolUseNudge(t *testing.T) {
 
 	payload := ClaudeToKiro(req, false)
 	content := payload.ConversationState.CurrentMessage.UserInputMessage.Content
-	if !strings.Contains(content, backendToolUseNudge) {
-		t.Fatalf("expected backend tool-use nudge for continuation after read plan, got %q", content)
+	if payload.ToolContract == nil || !payload.ToolContract.RequiresTool {
+		t.Fatalf("expected tool contract for continuation after read plan")
+	}
+	if !strings.Contains(content, "Kiro-Go tool contract") {
+		t.Fatalf("expected tool contract instruction for continuation after read plan, got %q", content)
 	}
 	if !strings.Contains(content, "继续") {
 		t.Fatalf("expected original continuation content preserved, got %q", content)
@@ -151,6 +155,7 @@ func TestClaudeNormalContinuationDoesNotGetToolUseNudge(t *testing.T) {
 func TestClaudeReadonlyFileCheckGetsToolUseNudge(t *testing.T) {
 	req := &ClaudeRequest{
 		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeReadTool()},
 		Messages: []ClaudeMessage{
 			{Role: "user", Content: "把临时探针文件 _probe_sched.py 的删除再确认一下"},
 		},
@@ -158,8 +163,14 @@ func TestClaudeReadonlyFileCheckGetsToolUseNudge(t *testing.T) {
 
 	payload := ClaudeToKiro(req, false)
 	content := payload.ConversationState.CurrentMessage.UserInputMessage.Content
-	if !strings.Contains(content, backendToolUseNudge) {
-		t.Fatalf("expected backend tool-use nudge for readonly file check, got %q", content)
+	if payload.ToolContract == nil || !payload.ToolContract.RequiresTool {
+		t.Fatalf("expected tool contract for readonly file check")
+	}
+	if payload.ToolContract.Source != "readonly-inspection" {
+		t.Fatalf("expected readonly-inspection source, got %q", payload.ToolContract.Source)
+	}
+	if !strings.Contains(content, "Kiro-Go tool contract") {
+		t.Fatalf("expected tool contract instruction for readonly file check, got %q", content)
 	}
 	if !strings.Contains(content, "_probe_sched.py") {
 		t.Fatalf("expected original file check request preserved, got %q", content)
@@ -184,6 +195,7 @@ func TestClaudeCasualConfirmQuestionDoesNotGetToolUseNudge(t *testing.T) {
 func TestClaudeWriteHandoffAuthorizationGetsToolUseNudge(t *testing.T) {
 	req := &ClaudeRequest{
 		Model: "claude-opus-4.8",
+		Tools: []ClaudeTool{testClaudeReadTool()},
 		Messages: []ClaudeMessage{
 			{Role: "user", Content: "这轮要写进 HANDOFF 吗"},
 			{Role: "assistant", Content: "这一轮（问题一 MCP 重连 + 问题二失败自动禁用）要写进 HANDOFF 吗？"},
@@ -193,11 +205,70 @@ func TestClaudeWriteHandoffAuthorizationGetsToolUseNudge(t *testing.T) {
 
 	payload := ClaudeToKiro(req, false)
 	content := payload.ConversationState.CurrentMessage.UserInputMessage.Content
-	if !strings.Contains(content, backendToolUseNudge) {
-		t.Fatalf("expected backend tool-use nudge after HANDOFF write authorization, got %q", content)
+	if payload.ToolContract == nil || !payload.ToolContract.RequiresTool {
+		t.Fatalf("expected tool contract after HANDOFF write authorization")
+	}
+	if !strings.Contains(content, "Kiro-Go tool contract") {
+		t.Fatalf("expected tool contract instruction after HANDOFF write authorization, got %q", content)
 	}
 	if !strings.Contains(content, "写吧") {
 		t.Fatalf("expected original authorization content preserved, got %q", content)
+	}
+}
+
+func TestClaudeToolChoiceAnyBuildsToolContract(t *testing.T) {
+	req := &ClaudeRequest{
+		Model:      "claude-opus-4.8",
+		Tools:      []ClaudeTool{testClaudeReadTool()},
+		ToolChoice: map[string]interface{}{"type": "any"},
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "check the file"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	if payload.ToolContract == nil || !payload.ToolContract.RequiresTool {
+		t.Fatalf("expected tool_choice any to require a tool")
+	}
+	if payload.ToolContract.Source != "tool_choice" {
+		t.Fatalf("expected tool_choice source, got %q", payload.ToolContract.Source)
+	}
+}
+
+func TestToolContractRepairIsBounded(t *testing.T) {
+	payload := &KiroPayload{
+		ToolContract: &ToolContract{
+			RequiresTool:   true,
+			AvailableTools: []string{"read"},
+		},
+	}
+	payload.ConversationState.CurrentMessage.UserInputMessage.Content = "check file"
+
+	if !shouldRepairToolContract(payload, "Verifying file now.", nil) {
+		t.Fatalf("expected text-only response to violate tool contract")
+	}
+	if !prepareToolContractRepair(payload, "Verifying file now.") {
+		t.Fatalf("expected first repair to be prepared")
+	}
+	if prepareToolContractRepair(payload, "Still checking.") {
+		t.Fatalf("second repair must be blocked to avoid infinite loops")
+	}
+	if !strings.Contains(payload.ConversationState.CurrentMessage.UserInputMessage.Content, "Kiro-Go repair") {
+		t.Fatalf("expected repair instruction appended")
+	}
+}
+
+func testClaudeReadTool() ClaudeTool {
+	return ClaudeTool{
+		Name:        "read",
+		Description: "Read a file",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"path": map[string]interface{}{"type": "string"},
+			},
+			"required": []interface{}{"path"},
+		},
 	}
 }
 

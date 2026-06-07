@@ -1145,6 +1145,9 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 				} else {
 					rawContentBuilder.WriteString(text)
 				}
+				if shouldHoldToolContractText(payload) && len(toolUses) == 0 {
+					return
+				}
 				processClaudeText(text, isThinking, false)
 			},
 			OnToolUse: func(tu KiroToolUse) {
@@ -1229,6 +1232,10 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 			inputTokens = estimatedInputTokens
 		}
 		outputContent, extractedReasoning := extractThinkingFromContent(rawContentBuilder.String())
+		if shouldRepairToolContract(payload, outputContent, toolUses) && prepareToolContractRepair(payload, outputContent) {
+			attempt--
+			continue
+		}
 		thinkingOutput := rawThinkingBuilder.String()
 		if thinking && thinkingOutput == "" && extractedReasoning != "" {
 			thinkingOutput = extractedReasoning
@@ -1405,6 +1412,10 @@ func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, payload *KiroPayl
 
 		thinkingFormat := thinkingOpts.Format
 		finalContent, extractedReasoning := extractThinkingFromContent(content)
+		if shouldRepairToolContract(payload, finalContent, toolUses) && prepareToolContractRepair(payload, finalContent) {
+			attempt--
+			continue
+		}
 		rawThinkingContent := thinkingContent
 		if thinking && rawThinkingContent == "" && extractedReasoning != "" {
 			rawThinkingContent = extractedReasoning
@@ -1778,6 +1789,9 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, payload *KiroPayload
 				} else {
 					rawContentBuilder.WriteString(text)
 				}
+				if shouldHoldToolContractText(payload) && len(toolCalls) == 0 {
+					return
+				}
 				processText(text, isThinking, false)
 			},
 			OnToolUse: func(tu KiroToolUse) {
@@ -1855,6 +1869,10 @@ func (h *Handler) handleOpenAIStream(w http.ResponseWriter, payload *KiroPayload
 			inputTokens = estimatedInputTokens
 		}
 		outputContent, extractedReasoning := extractThinkingFromContent(rawContentBuilder.String())
+		if shouldRepairToolContract(payload, outputContent, toolUsesFromToolCalls(toolCalls)) && prepareToolContractRepair(payload, outputContent) {
+			attempt--
+			continue
+		}
 		reasoningOutput := rawReasoningBuilder.String()
 		if thinking && reasoningOutput == "" && extractedReasoning != "" {
 			reasoningOutput = extractedReasoning
@@ -1960,6 +1978,10 @@ func (h *Handler) handleOpenAINonStream(w http.ResponseWriter, payload *KiroPayl
 		}
 
 		finalContent, extractedReasoning := extractThinkingFromContent(content)
+		if shouldRepairToolContract(payload, finalContent, toolUses) && prepareToolContractRepair(payload, finalContent) {
+			attempt--
+			continue
+		}
 		if thinking && reasoningContent == "" && extractedReasoning != "" {
 			reasoningContent = extractedReasoning
 		} else if !thinking {

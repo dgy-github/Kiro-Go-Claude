@@ -170,6 +170,19 @@ type KiroPayload struct {
 	// in tool_use responses so the client can match them to its tool registry.
 	// Not serialized to the Kiro API request body.
 	ToolNameMap map[string]string `json:"-"`
+
+	// ToolContract records client-side tool-choice requirements that Kiro does
+	// not expose as a first-class upstream field. Handlers use it to detect
+	// text-only placeholder replies and run a bounded repair retry.
+	ToolContract *ToolContract `json:"-"`
+}
+
+type ToolContract struct {
+	RequiresTool   bool
+	ToolName       string
+	Source         string
+	AvailableTools []string
+	RepairAttempts int
 }
 
 type KiroUserInputMessage struct {

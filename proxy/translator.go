@@ -303,16 +303,17 @@ func ClaudeToKiro(req *ClaudeRequest, thinking bool) *KiroPayload {
 	} else {
 		finalContent = minimalFallbackUserContent
 	}
-	if shouldForceToolUseAfterContinuation(currentContent, previousAssistantContent) {
-		finalContent = appendBackendToolUseNudge(finalContent)
-	}
-
 	// 转换工具
 	kiroTools, toolNameMap := convertClaudeTools(req.Tools)
+	toolContract := buildToolContract(req.ToolChoice, currentContent, previousAssistantContent, kiroTools)
+	if toolContract != nil && toolContract.RequiresTool {
+		finalContent = appendToolContractInstruction(finalContent, toolContract)
+	}
 
 	// 构建 payload
 	payload := &KiroPayload{}
 	payload.ToolNameMap = toolNameMap
+	payload.ToolContract = toolContract
 	payload.ConversationState.ChatTriggerType = "MANUAL"
 	payload.ConversationState.AgentTaskType = "vibe"
 	payload.ConversationState.AgentContinuationId = uuid.New().String()
@@ -552,9 +553,6 @@ func shouldForceToolUseAfterContinuation(currentUser, previousAssistant string) 
 	if current == "" {
 		return false
 	}
-	if isReadonlyInspectionRequest(current) {
-		return true
-	}
 	continuations := map[string]bool{
 		"继续":         true,
 		"可以":         true,
@@ -594,6 +592,149 @@ func shouldForceToolUseAfterContinuation(currentUser, previousAssistant string) 
 		}
 	}
 	return false
+}
+
+func buildToolContract(toolChoice interface{}, currentUser, previousAssistant string, tools []KiroToolWrapper) *ToolContract {
+	available := toolNamesFromWrappers(tools)
+	if len(available) == 0 {
+		return nil
+	}
+
+	if required, toolName, source, known := parseToolChoiceContract(toolChoice); known {
+		if !required {
+			return nil
+		}
+		return &ToolContract{
+			RequiresTool:   true,
+			ToolName:       toolName,
+			Source:         source,
+			AvailableTools: available,
+		}
+	}
+
+	source := ""
+	if isReadonlyInspectionRequest(strings.ToLower(strings.TrimSpace(currentUser))) {
+		source = "readonly-inspection"
+	} else if shouldForceToolUseAfterContinuation(currentUser, previousAssistant) {
+		source = "authorized-continuation"
+	}
+	if source == "" {
+		return nil
+	}
+	return &ToolContract{
+		RequiresTool:   true,
+		Source:         source,
+		AvailableTools: available,
+	}
+}
+
+func parseToolChoiceContract(toolChoice interface{}) (required bool, toolName, source string, known bool) {
+	if toolChoice == nil {
+		return false, "", "", false
+	}
+	switch v := toolChoice.(type) {
+	case string:
+		return parseToolChoiceString(v)
+	case json.RawMessage:
+		if len(v) == 0 || string(v) == "null" {
+			return false, "", "", false
+		}
+		var s string
+		if err := json.Unmarshal(v, &s); err == nil {
+			return parseToolChoiceString(s)
+		}
+		var m map[string]interface{}
+		if err := json.Unmarshal(v, &m); err == nil {
+			return parseToolChoiceMap(m)
+		}
+	case []byte:
+		return parseToolChoiceContract(json.RawMessage(v))
+	case map[string]interface{}:
+		return parseToolChoiceMap(v)
+	}
+	return false, "", "", false
+}
+
+func parseToolChoiceString(choice string) (required bool, toolName, source string, known bool) {
+	switch strings.ToLower(strings.TrimSpace(choice)) {
+	case "any", "required":
+		return true, "", "tool_choice", true
+	case "auto", "":
+		return false, "", "tool_choice", false
+	case "none":
+		return false, "", "tool_choice", true
+	default:
+		return false, "", "tool_choice", false
+	}
+}
+
+func parseToolChoiceMap(choice map[string]interface{}) (required bool, toolName, source string, known bool) {
+	kind, _ := choice["type"].(string)
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "any", "required":
+		return true, "", "tool_choice", true
+	case "tool":
+		name, _ := choice["name"].(string)
+		return true, shortenToolName(sanitizeToolName(name)), "tool_choice", true
+	case "function":
+		if fn, ok := choice["function"].(map[string]interface{}); ok {
+			name, _ := fn["name"].(string)
+			return true, shortenToolName(name), "tool_choice", true
+		}
+		return true, "", "tool_choice", true
+	case "auto", "":
+		return false, "", "tool_choice", false
+	case "none":
+		return false, "", "tool_choice", true
+	default:
+		return false, "", "tool_choice", false
+	}
+}
+
+func toolNamesFromWrappers(tools []KiroToolWrapper) []string {
+	if len(tools) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.ToolSpecification.Name)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func appendToolContractInstruction(content string, contract *ToolContract) string {
+	content = strings.TrimSpace(content)
+	if content == "" || content == minimalFallbackUserContent {
+		content = "Continue."
+	}
+	note := buildToolContractInstruction(contract)
+	if strings.Contains(content, note) {
+		return content
+	}
+	return content + "\n\n" + note
+}
+
+func buildToolContractInstruction(contract *ToolContract) string {
+	if contract == nil || !contract.RequiresTool {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("[Kiro-Go tool contract: This turn requires a real structured tool_use before any final answer.")
+	if contract.ToolName != "" {
+		b.WriteString(" Use tool `")
+		b.WriteString(contract.ToolName)
+		b.WriteString("`.")
+	}
+	if contract.Source != "" {
+		b.WriteString(" Source: ")
+		b.WriteString(contract.Source)
+		b.WriteString(".")
+	}
+	b.WriteString(" Do not answer with placeholder text such as \"I will check\", \"Verifying\", or \"Checking\". If the requested action is impossible with the available tools, say so explicitly after attempting the relevant tool.]")
+	return b.String()
 }
 
 func isReadonlyInspectionRequest(current string) bool {
@@ -1159,6 +1300,7 @@ type OpenAIRequest struct {
 	TopP        float64         `json:"top_p,omitempty"`
 	Stream      bool            `json:"stream,omitempty"`
 	Tools       []OpenAITool    `json:"tools,omitempty"`
+	ToolChoice  json.RawMessage `json:"tool_choice,omitempty"`
 }
 
 type OpenAIMessage struct {
@@ -1285,6 +1427,7 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 	var currentContent string
 	var currentImages []KiroImage
 	var currentToolResults []KiroToolResult
+	var previousAssistantContent string
 
 	for i, msg := range nonSystemMessages {
 		isLast := i == len(nonSystemMessages)-1
@@ -1310,6 +1453,7 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 
 		case "assistant":
 			content := extractOpenAIMessageText(msg.Content)
+			previousAssistantContent = content
 
 			var toolUses []KiroToolUse
 			for _, tc := range msg.ToolCalls {
@@ -1420,9 +1564,14 @@ func OpenAIToKiro(req *OpenAIRequest, thinking bool) *KiroPayload {
 
 	// 转换工具
 	kiroTools := convertOpenAITools(req.Tools)
+	toolContract := buildToolContract(req.ToolChoice, finalContent, previousAssistantContent, kiroTools)
+	if toolContract != nil && toolContract.RequiresTool {
+		finalContent = appendToolContractInstruction(finalContent, toolContract)
+	}
 
 	// 构建 payload
 	payload := &KiroPayload{}
+	payload.ToolContract = toolContract
 	payload.ConversationState.ChatTriggerType = "MANUAL"
 	payload.ConversationState.ConversationID = buildConversationID(modelID, systemPrompt, firstOpenAIConversationAnchor(nonSystemMessages))
 	payload.ConversationState.CurrentMessage.UserInputMessage = KiroUserInputMessage{

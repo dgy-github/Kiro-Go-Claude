@@ -20,6 +20,7 @@ The `v1.1.3-claude-fix` release adds stability fixes for long coding-agent sessi
 - Raises upstream streaming timeout for large-context sessions.
 - Preserves image-bearing `tool_result` payloads where Claude Desktop still needs structured context.
 - Adds per-account in-flight request tracking so concurrent requests prefer idle accounts instead of overloading one account and triggering 429 retry storms.
+- Adds a gateway-level tool contract / bounded repair loop for `tool_choice` and readonly file-check turns, reducing text-only placeholders such as "I will check" when a real tool call is required.
 
 Original upstream project: [Quorinex/Kiro-Go](https://github.com/Quorinex/Kiro-Go).
 

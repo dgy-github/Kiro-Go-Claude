@@ -91,10 +91,11 @@ func (h *Handler) handleOpenAIResponses(w http.ResponseWriter, r *http.Request) 
 	}
 
 	openaiReq := &OpenAIRequest{
-		Model:    req.Model,
-		Messages: finalMessages,
-		Stream:   req.Stream,
-		Tools:    req.Tools,
+		Model:      req.Model,
+		Messages:   finalMessages,
+		Stream:     req.Stream,
+		Tools:      req.Tools,
+		ToolChoice: req.ToolChoice,
 	}
 	if req.Temperature != nil {
 		openaiReq.Temperature = *req.Temperature
@@ -178,6 +179,10 @@ func (h *Handler) handleResponsesNonStream(
 		finalContent, _ := extractThinkingFromContent(content)
 		if !thinking {
 			reasoningContent = ""
+		}
+		if shouldRepairToolContract(payload, finalContent, toolUses) && prepareToolContractRepair(payload, finalContent) {
+			attempt--
+			continue
 		}
 
 		if realInputTokens > 0 {
@@ -386,6 +391,9 @@ func (h *Handler) handleResponsesStream(
 					return
 				}
 				fullText.WriteString(text)
+				if shouldHoldToolContractText(payload) && len(toolUses) == 0 {
+					return
+				}
 				ensureMessageStarted()
 				send("response.output_text.delta", map[string]interface{}{
 					"type":          "response.output_text.delta",
@@ -498,6 +506,10 @@ func (h *Handler) handleResponsesStream(
 		reasoning := reasoningText.String()
 		if !thinking {
 			reasoning = ""
+		}
+		if shouldRepairToolContract(payload, finalContent, toolUses) && prepareToolContractRepair(payload, finalContent) {
+			attempt--
+			continue
 		}
 
 		if messageStarted {

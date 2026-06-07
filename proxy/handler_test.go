@@ -123,6 +123,94 @@ func TestClaudeNonStreamRetriesNextAccountAfterPreResponseFailure(t *testing.T) 
 	}
 }
 
+func TestClaudeStreamRepairsAssistantToolPlanPlaceholder(t *testing.T) {
+	cfgFile := t.TempDir() + "/config.json"
+	if err := config.Init(cfgFile); err != nil {
+		t.Fatalf("config.Init: %v", err)
+	}
+	if err := config.AddAccount(config.Account{
+		ID:          "test-account",
+		Enabled:     true,
+		AccessToken: "token-test",
+		ProfileArn:  "arn:aws:codewhisperer:profile/test",
+	}); err != nil {
+		t.Fatalf("add account: %v", err)
+	}
+	if err := config.UpdatePreferredEndpoint("kiro"); err != nil {
+		t.Fatalf("set preferred endpoint: %v", err)
+	}
+	if err := config.UpdateEndpointFallback(false); err != nil {
+		t.Fatalf("disable endpoint fallback: %v", err)
+	}
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusOK)
+		if requests == 1 {
+			_, _ = w.Write(awsEventStreamFrame(t, "assistantResponseEvent", map[string]interface{}{
+				"content": "好，我先 grep 全页题号 + 类别标题。",
+			}))
+			return
+		}
+		_, _ = w.Write(awsEventStreamFrame(t, "toolUseEvent", map[string]interface{}{
+			"toolUseId": "toolu_repaired",
+			"name":      "bash",
+			"input":     `{"cmd":"rg -n \"题号|类别\" docs"}`,
+			"stop":      true,
+		}))
+	}))
+	defer server.Close()
+
+	oldEndpoints := kiroEndpoints
+	kiroEndpoints = []kiroEndpoint{{
+		URL:    server.URL,
+		Origin: "AI_EDITOR",
+		Name:   "test",
+	}}
+	defer func() { kiroEndpoints = oldEndpoints }()
+
+	oldClient := kiroHttpStore.Load()
+	kiroHttpStore.Store(&http.Client{Timeout: time.Second, Transport: &http.Transport{}})
+	defer kiroHttpStore.Store(oldClient)
+
+	p := accountpool.GetPool()
+	p.Reload()
+	h := &Handler{
+		pool:        p,
+		promptCache: newPromptCacheTracker(defaultPromptCacheTTL),
+	}
+
+	payload := ClaudeToKiro(&ClaudeRequest{
+		Model: "claude-sonnet-4.5",
+		Tools: []ClaudeTool{{
+			Name:        "bash",
+			Description: "Run shell commands",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"cmd": map[string]interface{}{"type": "string"},
+				},
+			},
+		}},
+		Messages: []ClaudeMessage{{Role: "user", Content: "整理当前真实题号和类别标题"}},
+	}, false)
+
+	rec := httptest.NewRecorder()
+	h.handleClaudeStream(rec, payload, "claude-sonnet-4.5", false, claudeThinkingResponseOptions{}, 1, nil, "")
+
+	if requests != 2 {
+		t.Fatalf("expected one repair retry, got %d requests", requests)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "先 grep") {
+		t.Fatalf("placeholder text leaked to client:\n%s", body)
+	}
+	if !strings.Contains(body, `"type":"tool_use"`) || !strings.Contains(body, `"name":"bash"`) {
+		t.Fatalf("expected repaired tool_use SSE, got:\n%s", body)
+	}
+}
+
 func TestThinkingSourceTagFirst(t *testing.T) {
 	var source thinkingStreamSource
 

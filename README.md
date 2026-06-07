@@ -23,6 +23,7 @@ The `v1.1.3-claude-fix` release adds stability fixes for long coding-agent sessi
 - Adds a gateway-level tool contract / bounded repair loop for `tool_choice` and readonly file-check turns, reducing text-only placeholders such as "I will check" when a real tool call is required.
 - Extends the tool contract to delegated execution, local file/location lookup, and named-file work so Claude Code emits real tools instead of stopping after "I will read/check".
 - Adds a pending-tool-intent contract: if the previous assistant turn already promised tool-backed work and the user replies with a short confirmation such as "continue" or "read first", the gateway routes the turn to real tool use instead of another prose placeholder.
+- Repairs assistant-side tool-plan placeholders: if upstream starts a turn with text such as "I will grep/read first" instead of a structured tool call, the gateway holds that text, retries once with a tool contract, and only releases the repaired `tool_use`.
 - Retries the next upstream endpoint when a stream breaks before any assistant text or tool call is emitted, reducing surfaced `stream ID ... INTERNAL_ERROR` failures.
 
 Original upstream project: [Quorinex/Kiro-Go](https://github.com/Quorinex/Kiro-Go).

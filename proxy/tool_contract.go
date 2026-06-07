@@ -3,6 +3,7 @@ package proxy
 import "strings"
 
 const maxToolContractRepairAttempts = 1
+const assistantToolPlanHoldMaxRunes = 500
 
 const (
 	toolContractModeRequireUpstreamTool = "require_upstream_tool"
@@ -53,6 +54,78 @@ func shouldRepairToolContract(payload *KiroPayload, content string, toolUses []K
 		return false
 	}
 	return strings.TrimSpace(content) != ""
+}
+
+func shouldWatchAssistantToolPlan(payload *KiroPayload) bool {
+	if payload == nil || payload.ToolContract != nil {
+		return false
+	}
+	return len(availableToolNamesFromPayload(payload)) > 0
+}
+
+func shouldRepairAssistantToolPlan(payload *KiroPayload, content string, toolUses []KiroToolUse) bool {
+	if !shouldWatchAssistantToolPlan(payload) {
+		return false
+	}
+	if len(toolUses) > 0 {
+		return false
+	}
+	return looksLikeAssistantToolPlanPlaceholder(content)
+}
+
+func prepareAssistantToolPlanRepair(payload *KiroPayload, observedText string) bool {
+	if payload == nil {
+		return false
+	}
+	if payload.ToolContract == nil {
+		payload.ToolContract = &ToolContract{
+			RequiresTool:   true,
+			Source:         "assistant-tool-plan",
+			Mode:           toolContractModeRequireUpstreamTool,
+			AvailableTools: availableToolNamesFromPayload(payload),
+		}
+	}
+	return prepareToolContractRepair(payload, observedText)
+}
+
+func availableToolNamesFromPayload(payload *KiroPayload) []string {
+	if payload == nil {
+		return nil
+	}
+	ctx := payload.ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext
+	if ctx == nil || len(ctx.Tools) == 0 {
+		return nil
+	}
+	return toolNamesFromWrappers(ctx.Tools)
+}
+
+func looksLikeAssistantToolPlanPlaceholder(content string) bool {
+	text := strings.ToLower(strings.TrimSpace(content))
+	if text == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"先 grep", "先grep", "先 rg", "先rg", "先 read", "先read",
+		"先读", "先查", "先看", "先打开", "先扫描", "先检查", "先验证",
+		"我先 grep", "我先读", "我先查", "我先看", "我先跑", "我先执行",
+		"让我先", "先用 grep", "先用rg", "先用 rg", "先执行", "先运行", "先跑",
+		"let me grep", "let me read", "let me inspect", "let me check", "let me run",
+		"i'll grep", "i'll read", "i'll inspect", "i'll check", "i'll run",
+		"i will grep", "i will read", "i will inspect", "i will check", "i will run",
+		"first i'll", "first i will",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	if strings.Contains(text, "需要先") {
+		for _, marker := range []string{"grep", "rg", "读", "查", "看", "打开", "扫描", "检查", "验证", "执行", "运行"} {
+			if strings.Contains(text, marker) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func shouldHoldToolContractText(payload *KiroPayload) bool {

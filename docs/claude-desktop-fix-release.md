@@ -18,6 +18,7 @@ Upstream project:
 - Keeps readonly file-check detection as a temporary fallback source for the tool contract when the client does not send `tool_choice`.
 - Adds narrow upstream-enforced tool contracts for delegated execution, local file/location lookup, and named-file work so Claude Code does not stop after text such as "I will read/check".
 - Adds a generic pending-tool-intent contract for short confirmations after the assistant already promised tool-backed work, preventing repeated prose placeholders like "I will read it first".
+- Adds assistant-output repair for tool-plan placeholders: early text like "I will grep/read first" is held, repaired once into a structured tool call, and not leaked to Claude Code.
 - Retries the next upstream endpoint when a 200 OK stream breaks before any assistant text or tool call is emitted, reducing client-visible `stream ID ... INTERNAL_ERROR` failures.
 - Synthesizes safe readonly file `tool_use` calls when the user asks to verify a concrete file path and a read-like tool is available, instead of relying on upstream text generation.
 - Synthesizes a narrow safe `git status --short --branch` tool call after an authorized continuation when the previous assistant turn explicitly planned `git status` and a shell-like tool is available.

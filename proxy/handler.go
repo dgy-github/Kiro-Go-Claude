@@ -981,6 +981,9 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 		var thinkingSource thinkingStreamSource
 		var thinkingStarted bool
 		var eventThinkingOpen bool
+		var assistantToolPlanHold strings.Builder
+		assistantToolPlanHolding := shouldWatchAssistantToolPlan(payload)
+		assistantToolPlanSuppressed := false
 
 		sendText := func(text string, thinkingState int) {
 			if thinkingState == 0 {
@@ -1169,6 +1172,13 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 				}
 			}
 		}
+		flushAssistantToolPlanHold := func() {
+			if assistantToolPlanHold.Len() > 0 {
+				processClaudeText(assistantToolPlanHold.String(), false, false)
+				assistantToolPlanHold.Reset()
+			}
+			assistantToolPlanHolding = false
+		}
 
 		callback := &KiroStreamCallback{
 			OnText: func(text string, isThinking bool) {
@@ -1183,10 +1193,31 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 				if !isThinking && shouldSuppressToolContractVisibleText(payload) {
 					return
 				}
+				if !isThinking && assistantToolPlanHolding {
+					assistantToolPlanHold.WriteString(text)
+					held := assistantToolPlanHold.String()
+					if looksLikeAssistantToolPlanPlaceholder(held) {
+						assistantToolPlanSuppressed = true
+						return
+					}
+					if len([]rune(held)) < assistantToolPlanHoldMaxRunes {
+						return
+					}
+					flushAssistantToolPlanHold()
+					return
+				}
+				if !isThinking && assistantToolPlanSuppressed {
+					return
+				}
 				processClaudeText(text, isThinking, false)
 			},
 			OnToolUse: func(tu KiroToolUse) {
 				tu = restoreToolUseName(tu, payload.ToolNameMap)
+				if assistantToolPlanHolding {
+					assistantToolPlanSuppressed = true
+					assistantToolPlanHolding = false
+					assistantToolPlanHold.Reset()
+				}
 				processClaudeText("", false, true)
 				rawContentBuilder.WriteString(tu.Name)
 				if b, err := json.Marshal(tu.Input); err == nil {
@@ -1256,12 +1287,6 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 			return
 		}
 
-		processClaudeText("", false, true)
-		if eventThinkingOpen {
-			sendText("", 3)
-		}
-		closeActiveBlock()
-
 		if realInputTokens > 0 {
 			inputTokens = realInputTokens
 		} else if inputTokens <= 0 {
@@ -1280,6 +1305,27 @@ func (h *Handler) handleClaudeStream(w http.ResponseWriter, payload *KiroPayload
 			})
 			return
 		}
+		if !messageStarted && shouldRepairAssistantToolPlan(payload, outputContent, toolUses) {
+			if prepareAssistantToolPlanRepair(payload, outputContent) {
+				attempt--
+				continue
+			}
+			h.recordFailure()
+			h.sendSSE(w, flusher, "error", map[string]interface{}{
+				"type":  "error",
+				"error": map[string]string{"type": "tool_contract_violation", "message": toolContractViolationMessage(payload.ToolContract, outputContent)},
+			})
+			return
+		}
+		if assistantToolPlanHolding && !assistantToolPlanSuppressed {
+			flushAssistantToolPlanHold()
+		}
+		processClaudeText("", false, true)
+		if eventThinkingOpen {
+			sendText("", 3)
+		}
+		closeActiveBlock()
+
 		thinkingOutput := rawThinkingBuilder.String()
 		if thinking && thinkingOutput == "" && extractedReasoning != "" {
 			thinkingOutput = extractedReasoning
@@ -1467,6 +1513,15 @@ func (h *Handler) handleClaudeNonStream(w http.ResponseWriter, payload *KiroPayl
 		finalContent, extractedReasoning := extractThinkingFromContent(content)
 		if shouldRepairToolContract(payload, finalContent, toolUses) {
 			if prepareToolContractRepair(payload, finalContent) {
+				attempt--
+				continue
+			}
+			h.recordFailure()
+			h.sendClaudeError(w, 500, "tool_contract_violation", toolContractViolationMessage(payload.ToolContract, finalContent))
+			return
+		}
+		if shouldRepairAssistantToolPlan(payload, finalContent, toolUses) {
+			if prepareAssistantToolPlanRepair(payload, finalContent) {
 				attempt--
 				continue
 			}

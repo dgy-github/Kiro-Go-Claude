@@ -665,6 +665,21 @@ func TestToolContractSuppressesVisibleTextAfterToolUse(t *testing.T) {
 	}
 }
 
+func TestAssistantToolPlanPlaceholderDetection(t *testing.T) {
+	if !looksLikeAssistantToolPlanPlaceholder("好，我先 grep 全页题号 + 类别标题。") {
+		t.Fatalf("expected assistant tool plan placeholder to be detected")
+	}
+	if !looksLikeAssistantToolPlanPlaceholder("Let me read the file first.") {
+		t.Fatalf("expected English assistant tool plan placeholder to be detected")
+	}
+}
+
+func TestAssistantToolPlanPlaceholderDoesNotTriggerForAdvice(t *testing.T) {
+	if looksLikeAssistantToolPlanPlaceholder("你可以 grep 全页题号，也可以直接打开页面看。") {
+		t.Fatalf("tool-use advice should not be treated as assistant placeholder")
+	}
+}
+
 func TestRestoreToolUseNamesUsesClientToolNames(t *testing.T) {
 	toolUses := []KiroToolUse{
 		{ToolUseID: "t1", Name: "bash", Input: map[string]interface{}{"command": "git status"}},

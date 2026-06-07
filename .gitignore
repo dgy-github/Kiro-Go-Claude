@@ -1,0 +1,24 @@
+# Build artifacts
+/kiro-go
+/kiro-go.exe
+*.exe
+*.test
+*.out
+
+# Runtime data
+/data/
+*.log
+
+# Editor / OS
+.idea/
+.vscode/
+.claude/
+.DS_Store
+Thumbs.db
+
+# Zeabur local CLI context (contains personal project/service IDs)
+.zeabur/
+
+# Local backups / scratch
+backup*/
+PR-*.md

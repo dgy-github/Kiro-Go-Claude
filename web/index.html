@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kiro-Go</title>
+  <link rel="icon" type="image/x-icon" href="/admin/favicon.ico" />
+  <script src="/admin/vendor/tailwindcss-browser/index.global.js"></script>
+  <link rel="stylesheet" href="/admin/vendor/fontawesome/css/all.min.css" />
+  <link rel="stylesheet" href="/admin/styles.css" id="__cssAsset" />
+  <link rel="stylesheet" href="/admin/toast.css" id="__toastCss" />
+  <script>
+    (function () {
+      var v = Date.now();
+      window.__v = v;
+      var css = document.getElementById('__cssAsset');
+      if (css) css.href = '/admin/styles.css?v=' + v;
+      var tcss = document.getElementById('__toastCss');
+      if (tcss) tcss.href = '/admin/toast.css?v=' + v;
+    })();
+  </script>
+</head>
+
+<body>
+  <!-- Login -->
+  <div id="loginPage" class="login-wrapper">
+    <div class="ghost-bg" aria-hidden="true">
+      <i class="fa-solid fa-ghost ghost ghost-1"></i>
+      <i class="fa-solid fa-ghost ghost ghost-2"></i>
+      <i class="fa-solid fa-ghost ghost ghost-3"></i>
+      <i class="fa-solid fa-ghost ghost ghost-4"></i>
+      <i class="fa-solid fa-ghost ghost ghost-5"></i>
+      <i class="fa-solid fa-ghost ghost ghost-6"></i>
+      <i class="fa-solid fa-ghost ghost ghost-7"></i>
+      <i class="fa-solid fa-ghost ghost ghost-8"></i>
+      <i class="fa-solid fa-ghost ghost ghost-9"></i>
+      <i class="fa-solid fa-ghost ghost ghost-10"></i>
+      <i class="fa-solid fa-ghost ghost ghost-11"></i>
+      <i class="fa-solid fa-ghost ghost ghost-12"></i>
+    </div>
+    <header class="login-topbar">
+      <div class="login-topbar-inner">
+        <div class="brand" aria-label="Kiro-Go" data-i18n-aria-label="app.title">
+          <img class="brand-icon" src="/admin/favicon.ico" alt="" />
+          <span class="brand-text">Kiro-Go</span>
+        </div>
+        <div class="topbar-actions">
+          <div class="lang-switch" id="loginLangSwitch" role="group" aria-label="" data-i18n-aria-label="lang.label">
+            <button class="lang-btn" data-lang="zh" type="button" data-i18n="lang.zh"></button>
+            <button class="lang-btn" data-lang="en" type="button" data-i18n="lang.en"></button>
+          </div>
+          <span class="divider" aria-hidden="true"></span>
+          <button id="loginThemeToggle" class="icon-btn theme-toggle" type="button" aria-label=""
+            data-i18n-title="theme.toggle" data-i18n-aria-label="theme.toggle" data-theme="system">
+            <i class="fa-solid fa-circle-half-stroke theme-ico-system"></i>
+            <i class="fa-solid fa-sun theme-ico-light"></i>
+            <i class="fa-solid fa-moon theme-ico-dark"></i>
+          </button>
+        </div>
+      </div>
+    </header>
+    <main class="login-main">
+      <div class="login-box">
+        <h1 class="login-title" data-i18n="login.title"></h1>
+        <p class="login-subtitle" data-i18n="login.subtitle"></p>
+        <div class="form-group">
+          <label data-i18n="login.password"></label>
+          <div class="input-affix">
+            <i class="fa-solid fa-lock affix-icon"></i>
+            <input type="password" id="pwdField" data-i18n-placeholder="login.passwordPlaceholder" autocomplete="off" />
+            <button type="button" class="affix-btn" id="pwdToggle" aria-label=""
+              data-i18n-aria-label="login.showPassword" data-shown="false">
+              <i class="fa-solid fa-eye"></i>
+            </button>
+          </div>
+        </div>
+        <label class="remember-row" for="rememberPwd">
+          <input type="checkbox" id="rememberPwd" />
+          <span class="remember-box" aria-hidden="true"><i class="fa-solid fa-check"></i></span>
+          <span class="remember-label" data-i18n="login.remember"></span>
+        </label>
+        <button type="button" class="btn btn-primary btn-lg w-full" id="loginBtn">
+          <i class="fa-solid fa-arrow-right-to-bracket"></i>
+          <span data-i18n="login.submit"></span>
+        </button>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Main app -->
+  <div id="mainPage" class="hidden">
+    <header class="app-header">
+      <div class="app-header-inner">
+        <div class="brand-wrap">
+          <div class="brand">
+            <img class="brand-icon" src="/admin/favicon.ico" alt="" />
+            <span class="brand-text">Kiro-Go</span>
+          </div>
+        </div>
+        <nav class="header-nav" aria-label="" data-i18n-aria-label="aria.sections">
+          <div class="tabs" id="tabBar">
+            <button type="button" class="tab active" data-tab="accounts"><i class="fa-solid fa-users tab-icon"></i><span
+                data-i18n="tabs.accounts"></span></button>
+            <button type="button" class="tab" data-tab="settings"><i class="fa-solid fa-sliders tab-icon"></i><span
+                data-i18n="tabs.settings"></span></button>
+            <button type="button" class="tab" data-tab="api"><i class="fa-solid fa-plug tab-icon"></i><span
+                data-i18n="tabs.api"></span></button>
+          </div>
+        </nav>
+        <div class="topbar-actions flex-wrap justify-end">
+          <div class="lang-switch" id="mainLangSwitch" role="group" aria-label="" data-i18n-aria-label="lang.label">
+            <button class="lang-btn" data-lang="zh" type="button" data-i18n="lang.zh"></button>
+            <button class="lang-btn" data-lang="en" type="button" data-i18n="lang.en"></button>
+          </div>
+          <button id="mainThemeToggle" class="icon-btn theme-toggle" type="button" aria-label=""
+            data-i18n-title="theme.toggle" data-i18n-aria-label="theme.toggle" data-theme="system">
+            <i class="fa-solid fa-circle-half-stroke theme-ico-system"></i>
+            <i class="fa-solid fa-sun theme-ico-light"></i>
+            <i class="fa-solid fa-moon theme-ico-dark"></i>
+          </button>
+          <span class="divider" aria-hidden="true"></span>
+          <button class="btn btn-outline btn-sm" id="logoutBtn">
+            <i class="fa-solid fa-right-from-bracket"></i>
+            <span data-i18n="common.logout"></span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div class="container">
+      <!-- Stats summary -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-card-title" data-i18n="stats.accounts"></div>
+          <div class="stat-body">
+            <div class="stat-main">
+              <div class="stat-value" id="statAccounts">0</div>
+              <div class="stat-sub">
+                <span class="stat-sub-sec"><span class="stat-value-sm" id="statCredits">0</span> <span
+                    class="stat-label" data-i18n="stats.credits"></span></span>
+              </div>
+            </div>
+            <i class="fa-solid fa-users stat-icon" aria-hidden="true"></i>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-title" data-i18n="stats.requests"></div>
+          <div class="stat-body">
+            <div class="stat-main">
+              <div class="stat-value" id="statRequests">0</div>
+              <div class="stat-sub">
+                <span class="stat-sub-sec"><span class="stat-value-sm" id="statTokens">0</span> <span class="stat-label"
+                    data-i18n="stats.tokens"></span></span>
+              </div>
+            </div>
+            <i class="fa-solid fa-route stat-icon" aria-hidden="true"></i>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-title" data-i18n="stats.success"></div>
+          <div class="stat-body">
+            <div class="stat-main">
+              <div class="stat-value" id="statSuccess">0</div>
+              <div class="stat-sub"><span class="stat-label" data-i18n="stats.completed"></span></div>
+            </div>
+            <i class="fa-solid fa-circle-check stat-icon" aria-hidden="true"></i>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-title" data-i18n="stats.failed"></div>
+          <div class="stat-body">
+            <div class="stat-main">
+              <div class="stat-value stat-value--danger" id="statFailed">0</div>
+              <div class="stat-sub">
+                <span class="stat-label" data-i18n="stats.errors"></span>
+              </div>
+            </div>
+            <i class="fa-solid fa-circle-xmark stat-icon stat-icon--danger" aria-hidden="true"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Accounts tab -->
+      <div id="tabAccounts" class="tab-content">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title" data-i18n="accounts.title"></span>
+            <div class="card-actions">
+              <label class="flex items-center gap-2 cursor-pointer select-none" title=""
+                data-i18n-title="privacy.tooltip">
+                <span class="text-xs font-medium" data-i18n="privacy.label"></span>
+                <span class="switch"><input type="checkbox" id="privacyModeToggle" checked /><span
+                    class="slider"></span></span>
+              </label>
+              <button class="btn btn-outline btn-sm" id="exportBtn"><i class="fa-solid fa-file-export"
+                  aria-hidden="true"></i><span class="btn-text" data-i18n="accounts.export"></span></button>
+              <button class="btn btn-outline btn-sm" id="refreshAllModelsBtn"><i class="fa-solid fa-arrows-rotate"
+                  aria-hidden="true"></i><span class="btn-text" data-i18n="models.refreshAll"></span></button>
+              <button class="btn btn-primary btn-sm" id="addAccountBtn"><i class="fa-solid fa-plus"
+                  aria-hidden="true"></i><span class="btn-text" data-i18n="accounts.add"></span></button>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <label class="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
+              <input type="checkbox" id="selectAllCheckbox" />
+              <span class="text-xs" data-i18n="batch.selectAll"></span>
+            </label>
+            <div id="batchBar" class="batch-bar hidden">
+              <span id="batchCount" class="batch-count"></span>
+              <button class="btn btn-primary btn-xs" data-batch="enable" data-i18n="batch.enable"></button>
+              <button class="btn btn-secondary btn-xs" data-batch="disable" data-i18n="batch.disable"></button>
+              <button class="btn btn-secondary btn-xs" data-batch="refresh" data-i18n="batch.refresh"></button>
+              <button class="btn btn-secondary btn-xs" data-batch="refreshModels"
+                data-i18n="batch.refreshModels"></button>
+              <button class="btn btn-danger btn-xs" data-batch="delete" data-i18n="batch.delete"></button>
+            </div>
+            <div class="toolbar-spacer"></div>
+            <input type="text" id="filterSearch" class="w-56!" data-i18n-placeholder="filter.search" />
+            <select id="filterStatusSelect" class="w-32!" data-i18n-aria-label="filter.status">
+              <option value="all" data-i18n="filter.all"></option>
+              <option value="enabled" data-i18n="filter.enabled"></option>
+              <option value="disabled" data-i18n="filter.disabled"></option>
+              <option value="banned" data-i18n="filter.banned"></option>
+            </select>
+          </div>
+
+          <div id="accountsList"></div>
+        </div>
+      </div>
+
+      <!-- Settings tab -->
+      <div id="tabSettings" class="tab-content hidden">
+        <!-- API settings -->
+        <div class="card">
+          <div class="card-header"><span class="card-title" data-i18n="settings.apiSettings"></span></div>
+          <div class="form-group">
+            <label class="flex items-center gap-2">
+              <span class="switch"><input type="checkbox" id="requireApiKey" /><span class="slider"></span></span>
+              <span data-i18n="settings.enableApiKey"></span>
+            </label>
+            <small data-i18n="apiKeys.requireHint"></small>
+          </div>
+          <button class="btn btn-primary btn-sm" id="saveRequireApiKeyBtn" data-i18n="settings.saveApiKey"></button>
+
+          <div class="form-group" style="margin-top: 1rem;">
+            <div class="flex items-center gap-2" style="justify-content: space-between;">
+              <label class="font-semibold" data-i18n="apiKeys.listTitle"></label>
+              <button class="btn btn-outline btn-sm" id="addApiKeyBtn" type="button">
+                <i class="fa-solid fa-plus"></i>
+                <span data-i18n="apiKeys.add"></span>
+              </button>
+            </div>
+            <small data-i18n="apiKeys.listHint"></small>
+          </div>
+          <div id="apiKeysList"></div>
+        </div>
+
+        <!-- Usage settings -->
+        <div class="card">
+          <div class="card-header"><span class="card-title" data-i18n="settings.usageSettings"></span></div>
+          <div class="form-group">
+            <label class="flex items-center gap-2">
+              <span class="switch"><input type="checkbox" id="allowOverUsage" /><span class="slider"></span></span>
+              <span data-i18n="settings.allowOverUsage"></span>
+            </label>
+            <small data-i18n="settings.allowOverUsageHint"></small>
+          </div>
+          <button class="btn btn-primary" id="saveOverUsageBtn" data-i18n="settings.saveUsage"></button>
+        </div>
+
+        <!-- Thinking settings -->
+        <div class="card">
+          <div class="card-header"><span class="card-title" data-i18n="settings.thinkingSettings"></span></div>
+          <div class="form-group">
+            <label data-i18n="settings.thinkingSuffix"></label>
+            <input type="text" id="thinkingSuffix" placeholder="-thinking" />
+            <small data-i18n="settings.thinkingSuffixHint"></small>
+          </div>
+          <div class="form-group">
+            <label data-i18n="settings.openaiFormat"></label>
+            <select id="openaiThinkingFormat">
+              <option value="reasoning_content" data-i18n="settings.formatReasoningContent"></option>
+              <option value="thinking" data-i18n="settings.formatThinkingClaude"></option>
+              <option value="think" data-i18n="settings.formatThinkOpenAI"></option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label data-i18n="settings.claudeFormat"></label>
+            <select id="claudeThinkingFormat">
+              <option value="thinking" data-i18n="settings.formatThinkingClaude"></option>
+              <option value="think" data-i18n="settings.formatThinkOpenAI"></option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="saveThinkingBtn" data-i18n="settings.saveThinking"></button>
+        </div>
+
+        <!-- Endpoint settings -->
+        <div class="card">
+          <div class="card-header"><span class="card-title" data-i18n="settings.endpointSettings"></span></div>
+          <div class="form-group">
+            <label data-i18n="settings.preferredEndpoint"></label>
+            <select id="preferredEndpoint">
+              <option value="auto" data-i18n="settings.endpointAuto"></option>
+              <option value="kiro" data-i18n="settings.endpointKiro"></option>
+              <option value="codewhisperer" data-i18n="settings.endpointCodeWhisperer"></option>
+              <option value="amazonq" data-i18n="settings.endpointAmazonQ"></option>
+            </select>
+            <small data-i18n="settings.endpointHint"></small>
+          </div>
+          <div class="form-group">
+            <label class="flex items-center gap-2">
+              <span class="switch"><input type="checkbox" id="endpointFallback" checked /><span
+                  class="slider"></span></span>
+              <span data-i18n="settings.endpointFallback"></span>
+            </label>
+            <small data-i18n="settings.endpointFallbackHint"></small>
+          </div>
+          <button class="btn btn-primary" id="saveEndpointBtn" data-i18n="settings.saveEndpoint"></button>
+        </div>
+
+        <!-- Admin password -->
+        <div class="card">
+          <div class="card-header"><span class="card-title" data-i18n="settings.adminPassword"></span></div>
+          <div class="form-group">
+            <label data-i18n="settings.newPassword"></label>
+            <input type="password" id="newPassword" data-i18n-placeholder="settings.newPasswordPlaceholder" />
+          </div>
+          <button class="btn btn-primary" id="changePasswordBtn" data-i18n="settings.changePassword"></button>
+        </div>
+
+        <!-- Outbound proxy -->
+        <div class="card">
+          <div class="card-header"><span class="card-title" data-i18n="settings.proxySettings"></span></div>
+          <div class="form-group">
+            <label data-i18n="settings.proxyType"></label>
+            <select id="proxyType">
+              <option value="none" data-i18n="settings.proxyNone"></option>
+              <option value="socks5" data-i18n="settings.proxySocks5"></option>
+              <option value="http" data-i18n="settings.proxyHttp"></option>
+            </select>
+          </div>
+          <div id="proxyFields" class="hidden">
+            <div class="form-group">
+              <label data-i18n="settings.proxyHost"></label>
+              <div class="input-row">
+                <input type="text" id="proxyHost" placeholder="127.0.0.1" />
+                <input type="number" id="proxyPort" class="w-24!" placeholder="1080" min="1" max="65535" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label data-i18n="settings.proxyAuth"></label>
+              <div class="input-row">
+                <input type="text" id="proxyUsername" data-i18n-placeholder="settings.proxyUsername"
+                  autocomplete="off" />
+                <input type="password" id="proxyPassword" data-i18n-placeholder="settings.proxyPassword"
+                  autocomplete="new-password" />
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="saveProxyBtn" data-i18n="settings.saveProxy"></button>
+        </div>
+
+        <!-- Prompt filter -->
+        <div class="card">
+          <div class="card-header"><span class="card-title" data-i18n="settings.promptFilter"></span></div>
+          <div class="form-group">
+            <label class="font-semibold pb-2 block" data-i18n="settings.builtinFilters"></label>
+            <div class="flex flex-col gap-3">
+              <div>
+                <label class="flex items-center gap-2">
+                  <span class="switch"><input type="checkbox" id="filterClaudeCode" /><span
+                      class="slider"></span></span>
+                  <span data-i18n="settings.filterClaudeCode"></span>
+                </label>
+                <small class="field-hint-offset" data-i18n="settings.filterClaudeCodeHint"></small>
+              </div>
+              <div>
+                <label class="flex items-center gap-2">
+                  <span class="switch"><input type="checkbox" id="filterEnvNoise" /><span class="slider"></span></span>
+                  <span data-i18n="settings.filterEnvNoise"></span>
+                </label>
+                <small class="field-hint-offset" data-i18n="settings.filterEnvNoiseHint"></small>
+              </div>
+              <div>
+                <label class="flex items-center gap-2">
+                  <span class="switch"><input type="checkbox" id="filterStripBoundaries" /><span
+                      class="slider"></span></span>
+                  <span data-i18n="settings.filterStripBoundaries"></span>
+                </label>
+                <small class="field-hint-offset" data-i18n="settings.filterStripBoundariesHint"></small>
+              </div>
+            </div>
+          </div>
+          <div class="form-group mt-4">
+            <label class="font-semibold pb-2 block" data-i18n="settings.customRules"></label>
+            <div id="promptFilterRules" class="mb-2"></div>
+            <div class="flex gap-2 flex-wrap items-center">
+              <button class="btn btn-outline btn-sm" id="addRuleRegexBtn" data-i18n="promptFilter.addRegex"></button>
+              <button class="btn btn-outline btn-sm" id="addRuleContainsBtn"
+                data-i18n="promptFilter.addContains"></button>
+              <button class="btn btn-primary btn-sm" id="savePromptFilterBtn"
+                data-i18n="settings.savePromptFilter"></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Statistics reset -->
+        <div class="card">
+          <div class="card-header"><span class="card-title" data-i18n="settings.statistics"></span></div>
+          <button class="btn btn-danger" id="resetStatsBtn" data-i18n="settings.resetStats"></button>
+        </div>
+      </div>
+
+      <!-- API tab -->
+      <div id="tabApi" class="tab-content hidden">
+        <section class="api-card" aria-labelledby="apiEndpointsTitle">
+          <div class="card-header api-card-header">
+            <span class="card-title" id="apiEndpointsTitle" data-i18n="api.endpoints"></span>
+            <span class="api-pill" data-i18n="api.protocolHttp"></span>
+          </div>
+          <div class="api-endpoint-list">
+            <section class="api-endpoint-item">
+              <div class="api-endpoint-meta">
+                <span class="api-endpoint-icon"><i class="fa-solid fa-message"></i></span>
+                <div>
+                  <p class="api-endpoint-title" data-i18n="api.claude"></p>
+                  <p class="api-endpoint-method" data-i18n="api.methodPost"></p>
+                </div>
+              </div>
+              <div class="endpoint api-code-row"><span class="api-code" id="claudeEndpoint"></span><button
+                  class="api-copy-btn" type="button" data-copy="claudeEndpoint" aria-label=""
+                  data-i18n-aria-label="api.copyClaude"><i class="fa-regular fa-copy"></i></button></div>
+            </section>
+            <section class="api-endpoint-item">
+              <div class="api-endpoint-meta">
+                <span class="api-endpoint-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></span>
+                <div>
+                  <p class="api-endpoint-title" data-i18n="api.openai"></p>
+                  <p class="api-endpoint-method" data-i18n="api.methodPost"></p>
+                </div>
+              </div>
+              <div class="endpoint api-code-row"><span class="api-code" id="openaiEndpoint"></span><button
+                  class="api-copy-btn" type="button" data-copy="openaiEndpoint" aria-label=""
+                  data-i18n-aria-label="api.copyOpenAI"><i class="fa-regular fa-copy"></i></button></div>
+            </section>
+            <section class="api-endpoint-item">
+              <div class="api-endpoint-meta">
+                <span class="api-endpoint-icon"><i class="fa-solid fa-comments"></i></span>
+                <div>
+                  <p class="api-endpoint-title" data-i18n="api.openaiResponses"></p>
+                  <p class="api-endpoint-method" data-i18n="api.methodPost"></p>
+                </div>
+              </div>
+              <div class="endpoint api-code-row"><span class="api-code" id="openaiResponsesEndpoint"></span><button
+                  class="api-copy-btn" type="button" data-copy="openaiResponsesEndpoint" aria-label=""
+                  data-i18n-aria-label="api.copyOpenAIResponses"><i class="fa-regular fa-copy"></i></button></div>
+            </section>
+            <section class="api-endpoint-item">
+              <div class="api-endpoint-meta">
+                <span class="api-endpoint-icon"><i class="fa-solid fa-layer-group"></i></span>
+                <div>
+                  <p class="api-endpoint-title" data-i18n="api.modelList"></p>
+                  <p class="api-endpoint-method" data-i18n="api.methodGet"></p>
+                </div>
+              </div>
+              <div class="endpoint api-code-row"><span class="api-code" id="modelsEndpoint"></span><button
+                  class="api-copy-btn" type="button" data-copy="modelsEndpoint" aria-label=""
+                  data-i18n-aria-label="api.copyModels"><i class="fa-regular fa-copy"></i></button></div>
+            </section>
+            <section class="api-endpoint-item">
+              <div class="api-endpoint-meta">
+                <span class="api-endpoint-icon"><i class="fa-solid fa-chart-simple"></i></span>
+                <div>
+                  <p class="api-endpoint-title" data-i18n="api.stats"></p>
+                  <p class="api-endpoint-method" data-i18n="api.methodGet"></p>
+                </div>
+              </div>
+              <div class="endpoint api-code-row"><span class="api-code" id="statsEndpoint"></span><button
+                  class="api-copy-btn" type="button" data-copy="statsEndpoint" aria-label=""
+                  data-i18n-aria-label="api.copyStats"><i class="fa-regular fa-copy"></i></button></div>
+            </section>
+          </div>
+          <p class="api-hint"><i class="fa-solid fa-key"></i><span data-i18n="api.statsHint"></span></p>
+        </section>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer" aria-label="" data-i18n-aria-label="aria.footer">
+      <div class="app-footer-inner">
+        <div class="footer-panel">
+          <div class="footer-identity">
+            <img class="footer-icon" src="/admin/favicon.ico" alt="" />
+            <div class="footer-copy">
+              <div class="footer-title-row">
+                <span class="footer-title">Kiro-Go</span>
+                <span class="footer-version" id="versionBadge" aria-label=""
+                  data-i18n-aria-label="aria.currentVersion"></span>
+                <span class="footer-version-status" id="statusBadge" data-i18n-title="status.running" title="">
+                  <span class="status-dot"></span>
+                </span>
+              </div>
+
+            </div>
+          </div>
+          <div class="footer-actions">
+            <nav class="footer-links" aria-label="" data-i18n-aria-label="aria.resources">
+              <button class="footer-link" id="checkUpdateBtn" type="button">
+                <i class="fa-solid fa-rotate" aria-hidden="true"></i>
+                <span data-i18n="update.check" data-update-label></span>
+              </button>
+              <a class="footer-link" href="https://github.com/Quorinex/Kiro-Go" target="_blank" rel="noopener">
+                <i class="fa-brands fa-github" aria-hidden="true"></i>
+                <span data-i18n="footer.github"></span>
+              </a>
+            </nav>
+          </div>
+        </div>
+        <div class="footer-meta">
+          <span>© <span id="footerYear"></span> Kiro-Go</span>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Modals -->
+  <div id="addModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header"><span class="modal-title" id="modalTitle"></span><button class="modal-close"
+          id="addModalClose" type="button" aria-label="" data-i18n-aria-label="common.close">&times;</button></div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+  <div id="detailModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header"><span class="modal-title" data-i18n="detail.title"></span><button class="modal-close"
+          id="detailModalClose" type="button" aria-label="" data-i18n-aria-label="common.close">&times;</button></div>
+      <div class="modal-body" id="detailBody"></div>
+    </div>
+  </div>
+  <div id="exportModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header"><span class="modal-title" data-i18n="export.title"></span><button class="modal-close"
+          id="exportModalClose" type="button" aria-label="" data-i18n-aria-label="common.close">&times;</button></div>
+      <div class="modal-body" id="exportBody"></div>
+    </div>
+  </div>
+  <div id="testModal" class="modal">
+    <div class="modal-content test-modal-content">
+      <div class="modal-header"><span class="modal-title" data-i18n="accounts.testModalTitle"></span><button
+          class="modal-close" id="testModalClose" type="button" aria-label=""
+          data-i18n-aria-label="common.close">&times;</button></div>
+      <div class="modal-body" id="testBody"></div>
+    </div>
+  </div>
+  <div id="updateModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header"><span class="modal-title" data-i18n="update.title"></span><button class="modal-close"
+          id="updateModalClose" type="button" aria-label="" data-i18n-aria-label="common.close">&times;</button></div>
+      <div class="modal-body" id="updateBody"></div>
+    </div>
+  </div>
+  <div id="confirmModal" class="modal">
+    <div class="modal-content confirm-modal-content">
+      <div class="modal-header"><span class="modal-title" id="confirmTitle"></span><button class="modal-close"
+          id="confirmClose" type="button" aria-label="" data-i18n-aria-label="common.close">&times;</button></div>
+      <div class="modal-body">
+        <p class="confirm-message" id="confirmMessage"></p>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="confirmCancel" type="button" data-i18n="common.cancel"></button>
+          <button class="btn btn-primary" id="confirmOk" type="button" data-i18n="common.confirm"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="apiKeyModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-title" id="apiKeyModalTitle" data-i18n="apiKeys.modalTitleCreate"></span>
+        <button class="modal-close" id="apiKeyModalClose" type="button" aria-label=""
+          data-i18n-aria-label="common.close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label data-i18n="apiKeys.formName"></label>
+          <input type="text" id="apiKeyForm_name" data-i18n-placeholder="apiKeys.formNamePlaceholder" />
+        </div>
+        <div class="form-group">
+          <label data-i18n="apiKeys.formKey"></label>
+          <input type="text" id="apiKeyForm_key" data-i18n-placeholder="apiKeys.formKeyPlaceholder" />
+        </div>
+        <div class="form-group">
+          <label class="flex items-center gap-2">
+            <span class="switch"><input type="checkbox" id="apiKeyForm_enabled" checked /><span class="slider"></span></span>
+            <span data-i18n="apiKeys.formEnabled"></span>
+          </label>
+        </div>
+        <div class="form-group">
+          <label data-i18n="apiKeys.limitTokens"></label>
+          <input type="number" id="apiKeyForm_tokenLimit" min="0" step="1" value="0" />
+          <small data-i18n="apiKeys.limitHint"></small>
+        </div>
+        <div class="form-group">
+          <label data-i18n="apiKeys.limitCredits"></label>
+          <input type="number" id="apiKeyForm_creditLimit" min="0" step="0.01" value="0" />
+          <small data-i18n="apiKeys.limitHint"></small>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="apiKeyModalCancelBtn" type="button" data-i18n="apiKeys.cancelBtn"></button>
+          <button class="btn btn-primary" id="apiKeyModalSaveBtn" type="button" data-i18n="apiKeys.saveBtn"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="apiKeyShowModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-title" data-i18n="apiKeys.showTitle"></span>
+        <button class="modal-close" id="apiKeyShowClose" type="button" aria-label=""
+          data-i18n-aria-label="common.close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="confirm-message" data-i18n="apiKeys.showWarning"></p>
+        <div class="form-group">
+          <input type="text" id="apiKeyShowValue" readonly />
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" id="apiKeyShowCopyBtn" type="button" data-i18n="apiKeys.copyBtn"></button>
+          <button class="btn btn-primary" id="apiKeyShowCloseBtn" type="button" data-i18n="apiKeys.closeBtn"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Script loader -->
+  <script>
+    (function () {
+      var v = window.__v || Date.now();
+      var t = document.createElement('script');
+      t.src = '/admin/toast.js?v=' + v;
+      document.body.appendChild(t);
+      var s = document.createElement('script');
+      s.src = '/admin/app.js?v=' + v;
+      s.defer = true;
+      document.body.appendChild(s);
+    })();
+  </script>
+</body>
+
+</html>

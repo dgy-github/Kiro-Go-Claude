@@ -560,6 +560,12 @@ func shouldForceToolUseAfterContinuation(currentUser, previousAssistant string) 
 		"处理":   true,
 		"继续处理": true,
 		"继续啊":  true,
+		"写":    true,
+		"写吧":   true,
+		"记一下":  true,
+		"记录":   true,
+		"记进 handoff": true,
+		"写进 handoff": true,
 		"行":    true,
 		"好":    true,
 		"ok":   true,
@@ -576,6 +582,7 @@ func shouldForceToolUseAfterContinuation(currentUser, previousAssistant string) 
 	for _, marker := range []string{
 		"先读", "读取", "读 ", "读`", "读 _", "并行读", "继续读",
 		"看日志", "查日志", "检查日志", "取证", "诊断",
+		"handoff", "写入", "记录", "插入", "更新", "读 handoff", "读`handoff",
 		"grep", "rg ", "read ", "read`", "inspect", "logs",
 		"tool_use", "发工具", "调用工具",
 	} {

@@ -148,6 +148,26 @@ func TestClaudeNormalContinuationDoesNotGetToolUseNudge(t *testing.T) {
 	}
 }
 
+func TestClaudeWriteHandoffAuthorizationGetsToolUseNudge(t *testing.T) {
+	req := &ClaudeRequest{
+		Model: "claude-opus-4.8",
+		Messages: []ClaudeMessage{
+			{Role: "user", Content: "这轮要写进 HANDOFF 吗"},
+			{Role: "assistant", Content: "这一轮（问题一 MCP 重连 + 问题二失败自动禁用）要写进 HANDOFF 吗？"},
+			{Role: "user", Content: "写吧"},
+		},
+	}
+
+	payload := ClaudeToKiro(req, false)
+	content := payload.ConversationState.CurrentMessage.UserInputMessage.Content
+	if !strings.Contains(content, backendToolUseNudge) {
+		t.Fatalf("expected backend tool-use nudge after HANDOFF write authorization, got %q", content)
+	}
+	if !strings.Contains(content, "写吧") {
+		t.Fatalf("expected original authorization content preserved, got %q", content)
+	}
+}
+
 func TestOpenAIToKiroAssistantMapContentInHistory(t *testing.T) {
 	req := &OpenAIRequest{
 		Model: "claude-sonnet-4.5",
